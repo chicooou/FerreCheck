@@ -78,7 +78,7 @@ def render_sidebar() -> dict:
         if st.sidebar.button("💾 Guardar Cambios en la Nube", use_container_width=True, type="primary"):
             with st.sidebar.spinner("Guardando configuración..."):
                 sync_period_to_sheets(p, "Activo")
-                st.sidebar.toast("¡Configuración guardada en Google Sheets!", icon="💾")
+                st.toast("¡Configuración guardada en Google Sheets!", icon="💾")
                 
     st.sidebar.write("---")
 
