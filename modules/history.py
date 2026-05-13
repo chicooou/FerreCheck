@@ -1,11 +1,12 @@
 """
-Módulo de Gestión de Historial y Copias de Seguridad para FerreCheck.
-Permite cargar, guardar, cerrar períodos actuales, visualizar históricos y hacer copias de seguridad (.json).
+Módulo de Gestión de Historial, Persistencia Activa (Autosave) y Copias de Seguridad para FerreCheck.
+Maneja la carga/guardado automático para evitar pérdida de datos al recargar la página.
 """
 
 import streamlit as st
 import json
 import os
+import datetime
 import pandas as pd
 from config import format_currency, MESES, get_month_name, ESTRATEGIAS
 from modules.engine import (
@@ -16,6 +17,7 @@ from modules.engine import (
 )
 
 HISTORY_FILE = os.path.join("data", "history.json")
+CURRENT_PERIOD_FILE = os.path.join("data", "current_period.json")
 
 def load_history() -> dict:
     """Carga el historial desde el archivo JSON de forma segura."""
@@ -33,8 +35,47 @@ def save_history(history: dict):
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2, ensure_ascii=False)
 
+def load_current_period() -> dict:
+    """
+    Carga el estado del período actual guardado localmente (autosave).
+    Si no existe, retorna el diccionario de valores por defecto.
+    """
+    if os.path.exists(CURRENT_PERIOD_FILE):
+        try:
+            with open(CURRENT_PERIOD_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data:
+                    return data
+        except Exception:
+            pass
+            
+    # Valores por defecto iniciales
+    now = datetime.datetime.now()
+    return {
+        "ano": now.year,
+        "mes": now.month,
+        "ventas": 100000.0,
+        "gastos": {
+            "planilla": 15000.0,
+            "renta": 8000.0,
+            "luz": 2500.0,
+            "otros": 4500.0
+        },
+        "estrategia": "balance",
+        "compras": []
+    }
+
+def save_current_period(p: dict):
+    """Guarda el estado del período actual en disco de manera silenciosa."""
+    os.makedirs(os.path.dirname(CURRENT_PERIOD_FILE), exist_ok=True)
+    try:
+        with open(CURRENT_PERIOD_FILE, "w", encoding="utf-8") as f:
+            json.dump(p, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
 def save_period(p: dict):
-    """Guarda el período actual en el historial."""
+    """Guarda el período actual cerrado en el archivo de historial."""
     history = load_history()
     
     year_str = str(p["ano"])
@@ -55,7 +96,7 @@ def save_period(p: dict):
 def render_history_view():
     """
     Muestra el historial completo de períodos cerrados de manera organizada.
-    También integra la funcionalidad de copias de seguridad (Backup & Restore).
+    También integra la funcionalidad de copias de seguridad unificadas (Historial + Configuración Activa).
     """
     st.markdown("### 📜 Historial de Períodos Cerrados")
     history = load_history()
@@ -65,33 +106,46 @@ def render_history_view():
         col_backup, col_restore = st.columns(2, gap="medium")
         
         with col_backup:
-            st.markdown("**📥 Descargar Respaldo**")
-            st.write("Descarga una copia completa de tu historial local para guardarla en tu computadora o dispositivo.")
-            if history:
-                backup_data = json.dumps(history, indent=2, ensure_ascii=False)
-                st.download_button(
-                    label="📥 Descargar Archivo de Respaldo (.json)",
-                    data=backup_data,
-                    file_name="FerreCheck_Respaldo_Historial.json",
-                    mime="application/json",
-                    use_container_width=True
-                )
-            else:
-                st.info("No hay datos históricos disponibles para respaldar todavía.")
+            st.markdown("**📥 Descargar Respaldo Completo**")
+            st.write("Descarga una copia que incluye tu historial completo de meses anteriores y tu configuración del mes activo actual.")
+            
+            # Construir objeto de respaldo unificado
+            backup_payload = {
+                "history": history,
+                "current_period": st.session_state.periodo_actual
+            }
+            backup_data = json.dumps(backup_payload, indent=2, ensure_ascii=False)
+            
+            st.download_button(
+                label="📥 Descargar Archivo de Respaldo (.json)",
+                data=backup_data,
+                file_name="FerreCheck_Respaldo_Total.json",
+                mime="application/json",
+                use_container_width=True
+            )
                 
         with col_restore:
             st.markdown("**📤 Restaurar Respaldo**")
-            st.write("Sube un archivo de respaldo (.json) descargado previamente para restaurar tu historial instantáneamente.")
+            st.write("Sube tu archivo de respaldo (.json) para restaurar tu configuración activa e historial de compras instantáneamente.")
             uploaded_file = st.file_uploader("Subir archivo de respaldo (.json)", type=["json"], label_visibility="collapsed")
             
             if uploaded_file is not None:
                 try:
                     uploaded_data = json.load(uploaded_file)
-                    # Validación simple de estructura
-                    if isinstance(uploaded_data, dict):
+                    
+                    # Validación de estructura unificada (nueva versión)
+                    if isinstance(uploaded_data, dict) and "history" in uploaded_data and "current_period" in uploaded_data:
                         if st.button("🔄 Confirmar y Restaurar Datos", type="primary", use_container_width=True):
+                            save_history(uploaded_data["history"])
+                            save_current_period(uploaded_data["current_period"])
+                            st.session_state.periodo_actual = uploaded_data["current_period"]
+                            st.success("✅ ¡Historial y Configuración Activa restaurados con éxito!")
+                            st.rerun()
+                    # Compatibilidad con respaldos antiguos (solo historial)
+                    elif isinstance(uploaded_data, dict):
+                        if st.button("🔄 Confirmar y Restaurar Historial", type="primary", use_container_width=True):
                             save_history(uploaded_data)
-                            st.success("✅ Historial restaurado con éxito.")
+                            st.success("✅ Historial restaurado (configuración actual sin cambios).")
                             st.rerun()
                     else:
                         st.error("⚠️ El formato del archivo de respaldo no es válido.")
@@ -182,6 +236,9 @@ def render_close_period_button(p: dict):
             p["mes"] = next_month
             p["ano"] = next_year
             p["compras"] = []
+            
+            # Guardar silenciosamente el nuevo estado limpio de período actual
+            save_current_period(p)
             
             st.toast(f"¡Período cerrado con éxito! Iniciando período {get_month_name(next_month)} {next_year}.", icon="📦")
             st.balloons()

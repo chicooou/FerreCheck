@@ -1,7 +1,7 @@
 """
 FerreCheck — Liquidez y Compras
 Entrypoint principal de la WebApp.
-Integración completa de todas las funcionalidades y módulos financieros.
+Integración completa de todas las funcionalidades, módulos financieros y autosave.
 """
 
 import streamlit as st
@@ -11,7 +11,12 @@ from modules.sidebar import render_sidebar
 from modules.dashboard import render_dashboard
 from modules.purchases import render_purchase_form, render_purchase_table
 from modules.export import render_export_button
-from modules.history import render_history_view, render_close_period_button
+from modules.history import (
+    render_history_view,
+    render_close_period_button,
+    load_current_period,
+    save_current_period
+)
 from modules.engine import (
     calcular_gastos_totales,
     calcular_limite_compra,
@@ -34,22 +39,9 @@ if os.path.exists(css_path):
     with open(css_path, "r", encoding="utf-8") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# 2. Inicializar Estado de la Sesión (Session State)
+# 2. Inicializar Estado de la Sesión (Cargando autosave si existe)
 if "periodo_actual" not in st.session_state:
-    now = datetime.datetime.now()
-    st.session_state.periodo_actual = {
-        "ano": now.year,
-        "mes": now.month,
-        "ventas": 100000.0,
-        "gastos": {
-            "planilla": 15000.0,
-            "renta": 8000.0,
-            "luz": 2500.0,
-            "otros": 4500.0
-        },
-        "estrategia": "balance",
-        "compras": []
-    }
+    st.session_state.periodo_actual = load_current_period()
 
 # 3. Renderizar Barra Lateral (Sidebar)
 p = render_sidebar()
@@ -115,7 +107,10 @@ with tab_compras:
 with tab_historial:
     render_history_view()
 
-# 7. Pie de Página (Footer)
+# 7. Guardado Automático (Autosave en disco al finalizar cada render)
+save_current_period(p)
+
+# 8. Pie de Página (Footer)
 st.markdown(
     """
     <div style="text-align: center; margin-top: 50px; padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); color: #5F738C; font-size: 13px;">
