@@ -17,13 +17,22 @@ SPREADSHEET_NAME = "FerreCheck"
 def get_google_creds():
     """
     Intenta obtener las credenciales de la cuenta de servicio de Google Cloud.
-    Primero busca en los secretos seguros de Streamlit, luego en el archivo local de desarrollo.
+    Soporta TOML estructurado, cadenas JSON crudas o strings multi-línea.
     """
     # 1. Buscar en Streamlit Secrets (Producción Cloud)
     if "google" in st.secrets and "service_account" in st.secrets["google"]:
-        # st.secrets["google"]["service_account"] puede ser un dict directamente en TOML
+        secret_val = st.secrets["google"]["service_account"]
+        
+        # Caso A: El secreto se configuró como un string JSON literal (comillas triples)
+        if isinstance(secret_val, str):
+            try:
+                return json.loads(secret_val)
+            except Exception:
+                pass
+                
+        # Caso B: El secreto se configuró como un diccionario parsed de TOML
         try:
-            return dict(st.secrets["google"]["service_account"])
+            return dict(secret_val)
         except Exception:
             pass
             

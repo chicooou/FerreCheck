@@ -94,3 +94,10 @@ pages/
 *.ntvs*
 *.njsproj
 *.sln
+
+# Google Sheets Secrets and local credentials
+secrets/
+*.json
+!data/history.json
+!data/current_period.json
+
