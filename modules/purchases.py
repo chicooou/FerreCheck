@@ -1,6 +1,6 @@
 """
 Módulo de Gestión de Compras para FerreCheck.
-Maneja el registro, validación, tabla visual y eliminación de compras individuales.
+Maneja el registro, validación, tabla visual, eliminación y sincronización en la nube (Google Sheets).
 """
 
 import streamlit as st
@@ -9,6 +9,7 @@ import uuid
 import datetime
 import calendar
 from config import format_currency
+from modules.sheets import is_sheets_active, sync_all_purchases_to_sheets
 
 def get_last_day_of_month(year: int, month: int) -> int:
     """Retorna el último día del mes dado."""
@@ -20,16 +21,13 @@ def render_purchase_form(p: dict, limite_real: float):
     """
     st.markdown("### 📝 Registrar Nueva Compra")
     
-    # Validar si el límite real es 0 (bloqueo por liquidez)
     if limite_real <= 0:
         st.error("🛑 No se pueden registrar compras: el límite de compra para este período es 0 due a restricciones de liquidez.")
         return
 
-    # Obtener rango de fechas válido para el período actual
     primer_dia = datetime.date(p["ano"], p["mes"], 1)
     ultimo_dia = datetime.date(p["ano"], p["mes"], get_last_day_of_month(p["ano"], p["mes"]))
     
-    # Por defecto, la fecha es hoy si está en el período, si no, el primer día del período
     hoy = datetime.date.today()
     fecha_defecto = hoy if primer_dia <= hoy <= ultimo_dia else primer_dia
 
@@ -51,11 +49,9 @@ def render_purchase_form(p: dict, limite_real: float):
         with col_nota:
             nota = st.text_input("Nota / Detalle (Opcional)", placeholder="Ej. Lote de clavos y tornillos de 2 pulgadas")
             
-        # Botón de envío del formulario
         submitted = st.form_submit_button("💾 Guardar Compra", use_container_width=True)
         
         if submitted:
-            # Validaciones estrictas
             if monto <= 0:
                 st.error("⚠️ El monto de la compra debe ser mayor a cero.")
                 return
@@ -63,7 +59,6 @@ def render_purchase_form(p: dict, limite_real: float):
                 st.error("⚠️ Debe ingresar un proveedor válido.")
                 return
             
-            # Validar si la compra excede el límite
             total_actual = sum(c["monto"] for c in p["compras"])
             nuevo_total = total_actual + monto
             excede_limite = nuevo_total > limite_real
@@ -78,10 +73,14 @@ def render_purchase_form(p: dict, limite_real: float):
             
             p["compras"].append(nueva_compra)
             
-            # Feedback al usuario
+            # Sincronización en la nube si Google Sheets está activo
+            if is_sheets_active():
+                with st.spinner("Sincronizando con Google Sheets..."):
+                    sync_all_purchases_to_sheets(p["compras"], p)
+            
             if excede_limite:
                 st.warning(
-                    f"⚠️ Compra registrada con éxito, pero **excede el límite establecido** por "
+                    f"⚠️ Compra registrada con éxito en {'la Nube' if is_sheets_active() else 'Local'}, pero **excede el límite establecido** por "
                     f"{format_currency(nuevo_total - limite_real)}."
                 )
             else:
@@ -99,19 +98,14 @@ def render_purchase_table(p: dict, limite_real: float):
         st.info("💡 No hay compras registradas para este período aún. Utiliza el formulario superior para agregar registros.")
         return
 
-    # Convertir a Pandas DataFrame para visualización premium
     df = pd.DataFrame(p["compras"])
-    
-    # Reordenar y dar formato a las columnas
     df["Monto"] = df["monto"].apply(format_currency)
     df["Fecha"] = pd.to_datetime(df["fecha"]).dt.strftime("%d/%m/%Y")
     df = df.rename(columns={"proveedor": "Proveedor", "nota": "Descripción / Nota"})
     
-    # Reordenar columnas para visualización final
     df_visual = df[["Fecha", "Proveedor", "Monto", "Descripción / Nota"]]
-    df_visual.index = range(1, len(df_visual) + 1) # Indexación 1-based
+    df_visual.index = range(1, len(df_visual) + 1)
     
-    # Mostrar tabla
     st.dataframe(df_visual, use_container_width=True)
     
     total_compras = sum(c["monto"] for c in p["compras"])
@@ -120,7 +114,6 @@ def render_purchase_table(p: dict, limite_real: float):
         f"**Total Acumulado:** `{format_currency(total_compras)}`"
     )
 
-    # Herramienta de eliminación de compras
     with st.expander("🗑️ Eliminar Compra Registrada", expanded=False):
         compra_options = {
             c["id"]: f"#{i+1} - {c['fecha']} | {c['proveedor']} | {format_currency(c['monto'])}" 
@@ -135,5 +128,11 @@ def render_purchase_table(p: dict, limite_real: float):
         
         if st.button("❌ Eliminar Compra", type="primary", use_container_width=True):
             p["compras"] = [c for c in p["compras"] if c["id"] != compra_id_to_delete]
+            
+            # Sincronización en la nube si Google Sheets está activo
+            if is_sheets_active():
+                with st.spinner("Sincronizando eliminación con Google Sheets..."):
+                    sync_all_purchases_to_sheets(p["compras"], p)
+                    
             st.success("Compra eliminada correctamente.")
             st.rerun()

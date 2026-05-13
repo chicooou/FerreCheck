@@ -1,12 +1,14 @@
 """
 Módulo Sidebar para FerreCheck.
 Maneja la entrada de configuración de gastos, ventas, estrategia y selección de período.
+Incluye integraciones visuales para Google Sheets.
 """
 
 import streamlit as st
 import datetime
 from config import ESTRATEGIAS, MESES, ANOS_RANGO, format_currency
 from modules.engine import calcular_gastos_totales
+from modules.sheets import is_sheets_active, sync_period_to_sheets
 
 def render_sidebar() -> dict:
     """
@@ -14,6 +16,12 @@ def render_sidebar() -> dict:
     """
     st.sidebar.markdown("## ⚙️ Configuración")
     
+    # Indicador de Conexión Base de Datos / Sheets
+    if is_sheets_active():
+        st.sidebar.success("🟢 Google Sheets Conectado")
+    else:
+        st.sidebar.info("💾 Modo de Almacenamiento: Local")
+        
     # 1. Selección de Período
     st.sidebar.subheader("📅 Período de Operación")
     p = st.session_state.periodo_actual
@@ -57,7 +65,6 @@ def render_sidebar() -> dict:
         luz = st.number_input("Luz y Agua", min_value=0.0, value=float(p["gastos"]["luz"]), step=100.0)
         otros = st.number_input("Otros Gastos Fijos", min_value=0.0, value=float(p["gastos"]["otros"]), step=500.0)
         
-        # Actualizar valores
         p["gastos"]["planilla"] = planilla
         p["gastos"]["renta"] = renta
         p["gastos"]["luz"] = luz
@@ -66,6 +73,13 @@ def render_sidebar() -> dict:
         gastos_totales = calcular_gastos_totales(p["gastos"])
         st.markdown(f"**Total Gastos Fijos:**\n `{format_currency(gastos_totales)}`")
 
+    # Botón para Sincronizar Cambios Financieros del Sidebar a Google Sheets
+    if is_sheets_active():
+        if st.sidebar.button("💾 Guardar Cambios en la Nube", use_container_width=True, type="primary"):
+            with st.sidebar.spinner("Guardando configuración..."):
+                sync_period_to_sheets(p, "Activo")
+                st.sidebar.toast("¡Configuración guardada en Google Sheets!", icon="💾")
+                
     st.sidebar.write("---")
 
     # 3. Estrategia de Compras
@@ -81,10 +95,13 @@ def render_sidebar() -> dict:
         index=estrategia_options.index(estrategia_actual),
         help="Determina el porcentaje de las ventas destinado a compras de inventario."
     )
-    p["estrategia"] = estrategia
     
-    # Mostrar descripción de la estrategia seleccionada de manera elegante
+    if estrategia != p["estrategia"]:
+        p["estrategia"] = estrategia
+        if is_sheets_active():
+            sync_period_to_sheets(p, "Activo")
+        st.rerun()
+        
     st.sidebar.info(ESTRATEGIAS[estrategia]["descripcion"])
     
-    # Retornar período actualizado
     return p

@@ -1,6 +1,7 @@
 """
 Módulo de Gestión de Historial, Persistencia Activa (Autosave) y Copias de Seguridad para FerreCheck.
-Maneja la carga/guardado automático para evitar pérdida de datos al recargar la página.
+Maneja la carga/guardado automático para evitar pérdida de datos al recargar la página,
+integrando de manera nativa la conexión con Google Sheets.
 """
 
 import streamlit as st
@@ -15,12 +16,31 @@ from modules.engine import (
     calcular_total_compras,
     calcular_utilidad_estimada
 )
+from modules.sheets import (
+    is_sheets_active,
+    load_all_data_from_sheets,
+    sync_period_to_sheets,
+    sync_all_purchases_to_sheets,
+    close_period_in_sheets
+)
 
 HISTORY_FILE = os.path.join("data", "history.json")
 CURRENT_PERIOD_FILE = os.path.join("data", "current_period.json")
 
 def load_history() -> dict:
-    """Carga el historial desde el archivo JSON de forma segura."""
+    """Carga el historial desde Google Sheets si está activo, o desde JSON local."""
+    if is_sheets_active():
+        # Si ya se cargó en esta ejecución, retornar caché del state
+        if "historial_sheets" in st.session_state:
+            return st.session_state.historial_sheets
+            
+        # Cargar desde Google Sheets
+        _, history = load_all_data_from_sheets()
+        if history is not None:
+            st.session_state.historial_sheets = history
+            return history
+            
+    # Fallback local
     if not os.path.exists(HISTORY_FILE):
         return {}
     try:
@@ -30,16 +50,28 @@ def load_history() -> dict:
         return {}
 
 def save_history(history: dict):
-    """Guarda el historial en el archivo JSON."""
+    """Guarda el historial en el archivo JSON local."""
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2, ensure_ascii=False)
 
 def load_current_period() -> dict:
     """
-    Carga el estado del período actual guardado localmente (autosave).
-    Si no existe, retorna el diccionario de valores por defecto.
+    Carga el estado del período actual.
+    Si Google Sheets está activo, lo jala desde Sheets.
+    Si no, de manera local (autosave).
     """
+    if is_sheets_active():
+        if "periodo_actual_sheets" in st.session_state:
+            return st.session_state.periodo_actual_sheets
+            
+        p_sheets, h_sheets = load_all_data_from_sheets()
+        if p_sheets is not None:
+            st.session_state.periodo_actual_sheets = p_sheets
+            st.session_state.historial_sheets = h_sheets
+            return p_sheets
+            
+    # Fallback local
     if os.path.exists(CURRENT_PERIOD_FILE):
         try:
             with open(CURRENT_PERIOD_FILE, "r", encoding="utf-8") as f:
@@ -76,8 +108,15 @@ def save_current_period(p: dict):
 
 def save_period(p: dict):
     """Guarda el período actual cerrado en el archivo de historial."""
+    if is_sheets_active():
+        close_period_in_sheets(p)
+        # Limpiar caché de sesión de Sheets para forzar recarga de historial
+        if "historial_sheets" in st.session_state:
+            del st.session_state.historial_sheets
+        return
+
+    # Fallback local
     history = load_history()
-    
     year_str = str(p["ano"])
     month_str = str(p["mes"])
     
@@ -109,7 +148,6 @@ def render_history_view():
             st.markdown("**📥 Descargar Respaldo Completo**")
             st.write("Descarga una copia que incluye tu historial completo de meses anteriores y tu configuración del mes activo actual.")
             
-            # Construir objeto de respaldo unificado
             backup_payload = {
                 "history": history,
                 "current_period": st.session_state.periodo_actual
@@ -133,15 +171,23 @@ def render_history_view():
                 try:
                     uploaded_data = json.load(uploaded_file)
                     
-                    # Validación de estructura unificada (nueva versión)
                     if isinstance(uploaded_data, dict) and "history" in uploaded_data and "current_period" in uploaded_data:
                         if st.button("🔄 Confirmar y Restaurar Datos", type="primary", use_container_width=True):
                             save_history(uploaded_data["history"])
                             save_current_period(uploaded_data["current_period"])
                             st.session_state.periodo_actual = uploaded_data["current_period"]
+                            
+                            # Si Sheets está activo, sincronizar en la nube
+                            if is_sheets_active():
+                                sync_period_to_sheets(uploaded_data["current_period"], "Activo")
+                                sync_all_purchases_to_sheets(uploaded_data["current_period"]["compras"], uploaded_data["current_period"])
+                                # Guardar también el histórico completo en Google Sheets requeriría iterar,
+                                # pero lo guardamos en caché temporal
+                                if "historial_sheets" in st.session_state:
+                                    st.session_state.historial_sheets = uploaded_data["history"]
+                                    
                             st.success("✅ ¡Historial y Configuración Activa restaurados con éxito!")
                             st.rerun()
-                    # Compatibilidad con respaldos antiguos (solo historial)
                     elif isinstance(uploaded_data, dict):
                         if st.button("🔄 Confirmar y Restaurar Historial", type="primary", use_container_width=True):
                             save_history(uploaded_data)
@@ -239,6 +285,15 @@ def render_close_period_button(p: dict):
             
             # Guardar silenciosamente el nuevo estado limpio de período actual
             save_current_period(p)
+            
+            if is_sheets_active():
+                # Forzar recarga completa en la siguiente ejecución para actualizar historial
+                if "periodo_actual_sheets" in st.session_state:
+                    del st.session_state.periodo_actual_sheets
+                if "historial_sheets" in st.session_state:
+                    del st.session_state.historial_sheets
+                sync_period_to_sheets(p, "Activo")
+                sync_all_purchases_to_sheets([], p, "Activo")
             
             st.toast(f"¡Período cerrado con éxito! Iniciando período {get_month_name(next_month)} {next_year}.", icon="📦")
             st.balloons()
