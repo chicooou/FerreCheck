@@ -254,8 +254,9 @@ def render_history_view():
                         df_hist = pd.DataFrame(m_data["compras"])
                         df_hist["Monto"] = df_hist["monto"].apply(format_currency)
                         df_hist["Fecha"] = pd.to_datetime(df_hist["fecha"]).dt.strftime("%d/%m/%Y")
+                        df_hist["Modalidad"] = df_hist.get("modalidad", "Contado")
                         df_hist = df_hist.rename(columns={"proveedor": "Proveedor", "nota": "Descripción"})
-                        df_hist_visual = df_hist[["Fecha", "Proveedor", "Monto", "Descripción"]]
+                        df_hist_visual = df_hist[["Fecha", "Proveedor", "Monto", "Modalidad", "Descripción"]]
                         df_hist_visual.index = range(1, len(df_hist_visual) + 1)
                         st.dataframe(df_hist_visual, use_container_width=True)
 

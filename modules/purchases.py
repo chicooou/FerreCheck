@@ -1,6 +1,7 @@
 """
 Módulo de Gestión de Compras para FerreCheck.
 Maneja el registro, validación, tabla visual, eliminación y sincronización en la nube (Google Sheets).
+Incluye selección de Modalidad de Pago (Contado / Crédito a plazos).
 """
 
 import streamlit as st
@@ -17,7 +18,7 @@ def get_last_day_of_month(year: int, month: int) -> int:
 
 def render_purchase_form(p: dict, limite_real: float):
     """
-    Renderiza el formulario para registrar una nueva compra.
+    Renderiza el formulario para registrar una nueva compra con modalidad de pago.
     """
     st.markdown("### 📝 Registrar Nueva Compra")
     
@@ -38,7 +39,7 @@ def render_purchase_form(p: dict, limite_real: float):
         with col_prov:
             proveedor = st.text_input("Nombre del Proveedor", placeholder="Ej. Aceros de Guatemala")
             
-        col_fecha, col_nota = st.columns([1, 2])
+        col_fecha, col_mod = st.columns([1, 2])
         with col_fecha:
             fecha_seleccionada = st.date_input(
                 "Fecha de la Compra", 
@@ -46,8 +47,14 @@ def render_purchase_form(p: dict, limite_real: float):
                 min_value=primer_dia,
                 max_value=ultimo_dia
             )
-        with col_nota:
-            nota = st.text_input("Nota / Detalle (Opcional)", placeholder="Ej. Lote de clavos y tornillos de 2 pulgadas")
+        with col_mod:
+            modalidad = st.selectbox(
+                "Modalidad de Pago (Proyección de Salida de Efectivo)",
+                options=["Contado", "Crédito 30 días", "Crédito 45 días", "Crédito 60 días"],
+                help="Proyecta en qué mes futuro saldrá el efectivo de la cuenta bancaria de la ferretería."
+            )
+            
+        nota = st.text_input("Nota / Detalle (Opcional)", placeholder="Ej. Lote de clavos y tornillos de 2 pulgadas")
             
         submitted = st.form_submit_button("💾 Guardar Compra", use_container_width=True)
         
@@ -68,12 +75,12 @@ def render_purchase_form(p: dict, limite_real: float):
                 "monto": monto,
                 "proveedor": proveedor.strip(),
                 "fecha": fecha_seleccionada.strftime("%Y-%m-%d"),
-                "nota": nota.strip() if nota else "Sin descripción"
+                "nota": nota.strip() if nota else "Sin descripción",
+                "modalidad": modalidad
             }
             
             p["compras"].append(nueva_compra)
             
-            # Sincronización en la nube si Google Sheets está activo
             if is_sheets_active():
                 with st.spinner("Sincronizando con Google Sheets..."):
                     sync_all_purchases_to_sheets(p["compras"], p)
@@ -84,13 +91,13 @@ def render_purchase_form(p: dict, limite_real: float):
                     f"{format_currency(nuevo_total - limite_real)}."
                 )
             else:
-                st.success(f"✅ Compra registrada correctamente: {nueva_compra['proveedor']} — {format_currency(nueva_compra['monto'])}")
+                st.success(f"✅ Compra registrada correctamente: {nueva_compra['proveedor']} — {format_currency(nueva_compra['monto'])} ({modalidad})")
                 
             st.rerun()
 
 def render_purchase_table(p: dict, limite_real: float):
     """
-    Muestra la tabla del historial de compras registradas en el mes actual.
+    Muestra la tabla del historial de compras registradas con su Modalidad.
     """
     st.markdown("### 📋 Compras Registradas en este Período")
     
@@ -101,9 +108,10 @@ def render_purchase_table(p: dict, limite_real: float):
     df = pd.DataFrame(p["compras"])
     df["Monto"] = df["monto"].apply(format_currency)
     df["Fecha"] = pd.to_datetime(df["fecha"]).dt.strftime("%d/%m/%Y")
+    df["Modalidad"] = df.get("modalidad", "Contado")
     df = df.rename(columns={"proveedor": "Proveedor", "nota": "Descripción / Nota"})
     
-    df_visual = df[["Fecha", "Proveedor", "Monto", "Descripción / Nota"]]
+    df_visual = df[["Fecha", "Proveedor", "Monto", "Modalidad", "Descripción / Nota"]]
     df_visual.index = range(1, len(df_visual) + 1)
     
     st.dataframe(df_visual, use_container_width=True)
@@ -116,7 +124,7 @@ def render_purchase_table(p: dict, limite_real: float):
 
     with st.expander("🗑️ Eliminar Compra Registrada", expanded=False):
         compra_options = {
-            c["id"]: f"#{i+1} - {c['fecha']} | {c['proveedor']} | {format_currency(c['monto'])}" 
+            c["id"]: f"#{i+1} - {c['fecha']} | {c['proveedor']} | {format_currency(c['monto'])} ({c.get('modalidad', 'Contado')})" 
             for i, c in enumerate(p["compras"])
         }
         
@@ -129,7 +137,6 @@ def render_purchase_table(p: dict, limite_real: float):
         if st.button("❌ Eliminar Compra", type="primary", use_container_width=True):
             p["compras"] = [c for c in p["compras"] if c["id"] != compra_id_to_delete]
             
-            # Sincronización en la nube si Google Sheets está activo
             if is_sheets_active():
                 with st.spinner("Sincronizando eliminación con Google Sheets..."):
                     sync_all_purchases_to_sheets(p["compras"], p)

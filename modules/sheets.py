@@ -2,6 +2,7 @@
 Módulo Conector de Google Sheets para FerreCheck.
 Permite lectura y escritura síncrona en tiempo real con Google Sheets,
 con un sistema de tolerancia a fallos y fallback automático a JSON local.
+Incluye soporte para modalidades de pago (Contado / Crédito).
 """
 
 import streamlit as st
@@ -11,7 +12,6 @@ import json
 import os
 import datetime
 
-# Nombre del archivo de Google Sheets por defecto
 SPREADSHEET_NAME = "FerreCheck"
 
 def get_google_creds():
@@ -19,24 +19,20 @@ def get_google_creds():
     Intenta obtener las credenciales de la cuenta de servicio de Google Cloud.
     Soporta TOML estructurado, cadenas JSON crudas o strings multi-línea.
     """
-    # 1. Buscar en Streamlit Secrets (Producción Cloud)
     if "google" in st.secrets and "service_account" in st.secrets["google"]:
         secret_val = st.secrets["google"]["service_account"]
         
-        # Caso A: El secreto se configuró como un string JSON literal (comillas triples)
         if isinstance(secret_val, str):
             try:
                 return json.loads(secret_val)
             except Exception:
                 pass
                 
-        # Caso B: El secreto se configuró como un diccionario parsed de TOML
         try:
             return dict(secret_val)
         except Exception:
             pass
             
-    # 2. Buscar en archivo local para desarrollo
     local_creds_path = os.path.join("secrets", "google_sheets_creds.json")
     if os.path.exists(local_creds_path):
         try:
@@ -75,14 +71,11 @@ def get_or_init_sheets(client) -> tuple:
     Retorna (sheet_periodos, sheet_compras).
     """
     try:
-        # Intentar abrir la hoja de cálculo
         sh = client.open(SPREADSHEET_NAME)
     except gspread.SpreadsheetNotFound:
-        # Intentar crearla si el Service Account tiene permisos de Drive
         try:
             sh = client.create(SPREADSHEET_NAME)
         except Exception:
-            # Obtener email de la cuenta de servicio para que el usuario la comparta
             creds = get_google_creds()
             email = creds.get("client_email", "su-email-de-servicio@gserviceaccount.com")
             
@@ -97,7 +90,6 @@ def get_or_init_sheets(client) -> tuple:
             )
             st.stop()
             
-    # Asegurar que existan las hojas de trabajo "Periodos" y "Compras"
     try:
         ws_periodos = sh.worksheet("Periodos")
     except gspread.WorksheetNotFound:
@@ -109,28 +101,27 @@ def get_or_init_sheets(client) -> tuple:
     try:
         ws_compras = sh.worksheet("Compras")
     except gspread.WorksheetNotFound:
-        ws_compras = sh.add_worksheet(title="Compras", rows="5000", cols="8")
+        ws_compras = sh.add_worksheet(title="Compras", rows="5000", cols="9")
         ws_compras.append_row([
-            "id", "ano", "mes", "fecha", "proveedor", "monto", "nota", "estado"
+            "id", "ano", "mes", "fecha", "proveedor", "monto", "nota", "estado", "modalidad"
         ])
+        
+    # Validar y asegurar que exista la columna modalidad en hojas existentes (retrocompatibilidad)
+    headers = ws_compras.row_values(1)
+    if "modalidad" not in headers:
+        ws_compras.update_cell(1, len(headers) + 1, "modalidad")
         
     return ws_periodos, ws_compras
 
 def sync_period_to_sheets(p: dict, estado: str = "Activo"):
-    """
-    Guarda o actualiza la configuración de un período en la hoja de Google Sheets.
-    """
+    """Guarda o actualiza la configuración de un período en la hoja de Google Sheets."""
     client = get_gspread_client()
     if not client:
         return
         
     try:
         ws_periodos, _ = get_or_init_sheets(client)
-        
-        # ID único por período (ej. "2026_5")
         period_id = f"{p['ano']}_{p['mes']}"
-        
-        # Buscar si ya existe la fila
         cell = ws_periodos.find(period_id, in_column=1)
         
         row_data = [
@@ -147,10 +138,8 @@ def sync_period_to_sheets(p: dict, estado: str = "Activo"):
         ]
         
         if cell:
-            # Actualizar fila existente
             ws_periodos.update(f"A{cell.row}:J{cell.row}", [row_data])
         else:
-            # Insertar nueva fila
             ws_periodos.append_row(row_data)
             
     except Exception as e:
@@ -159,7 +148,7 @@ def sync_period_to_sheets(p: dict, estado: str = "Activo"):
 def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo"):
     """
     Sincroniza toda la lista de compras del período actual con la hoja de Google Sheets.
-    Elimina registros anteriores activos para este período y escribe los nuevos.
+    Incluye la columna modalidad.
     """
     client = get_gspread_client()
     if not client:
@@ -167,21 +156,17 @@ def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo")
         
     try:
         _, ws_compras = get_or_init_sheets(client)
-        
-        # Obtener todas las compras registradas
         all_rows = ws_compras.get_all_values()
         headers = all_rows[0]
         
-        # Filtrar las filas para quedarnos solo con las que NO pertenecen a este período activo
         new_rows = [headers]
         for row in all_rows[1:]:
             if len(row) >= 8:
-                # Si es de otro período o está cerrado, se queda
                 if not (int(row[1]) == int(p["ano"]) and int(row[2]) == int(p["mes"]) and row[7] == "Activo"):
                     new_rows.append(row)
                     
-        # Agregar los registros de compra actuales
         for c in compras:
+            modalidad_val = c.get("modalidad", "Contado")
             new_rows.append([
                 c["id"],
                 int(p["ano"]),
@@ -190,10 +175,10 @@ def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo")
                 c["proveedor"],
                 float(c["monto"]),
                 c["nota"],
-                estado
+                estado,
+                modalidad_val
             ])
             
-        # Re-escribir la hoja completa de forma atómica para evitar desincronizaciones
         ws_compras.clear()
         ws_compras.update("A1", new_rows)
         
@@ -201,17 +186,13 @@ def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo")
         st.sidebar.warning(f"⚠️ Error al sincronizar compras con Google Sheets: {str(e)}")
 
 def close_period_in_sheets(p: dict):
-    """
-    Marca el período actual y sus compras como 'Cerrado' en Google Sheets.
-    """
+    """Marca el período actual y sus compras como 'Cerrado' en Google Sheets."""
     sync_period_to_sheets(p, estado="Cerrado")
     sync_all_purchases_to_sheets(p["compras"], p, estado="Cerrado")
 
 def load_all_data_from_sheets() -> tuple:
     """
-    Carga todos los datos de Google Sheets.
-    Reconstruye el período operativo activo y el diccionario histórico.
-    Retorna (periodo_actual, history_dict).
+    Carga todos los datos de Google Sheets reconstruyendo el estado con modalidades de pago.
     """
     client = get_gspread_client()
     if not client:
@@ -219,13 +200,9 @@ def load_all_data_from_sheets() -> tuple:
         
     try:
         ws_periodos, ws_compras = get_or_init_sheets(client)
-        
-        # 1. Cargar Períodos
         periodos_rows = ws_periodos.get_all_records()
-        # 2. Cargar Compras
         compras_rows = ws_compras.get_all_records()
         
-        # Encontrar período activo
         active_period = None
         history = {}
         
@@ -244,7 +221,6 @@ def load_all_data_from_sheets() -> tuple:
                 "compras": []
             }
             
-            # Asociar compras a este período
             for c in compras_rows:
                 if int(c["ano"]) == p_data["ano"] and int(c["mes"]) == p_data["mes"]:
                     p_data["compras"].append({
@@ -252,7 +228,8 @@ def load_all_data_from_sheets() -> tuple:
                         "monto": float(c["monto"]),
                         "proveedor": str(c["proveedor"]),
                         "fecha": str(c["fecha"]),
-                        "nota": str(c["nota"])
+                        "nota": str(c["nota"]),
+                        "modalidad": str(c.get("modalidad", "Contado")) if c.get("modalidad") else "Contado"
                     })
                     
             if r["estado"] == "Activo":
@@ -269,7 +246,6 @@ def load_all_data_from_sheets() -> tuple:
                     "compras": p_data["compras"]
                 }
                 
-        # Si no hay ningún período activo registrado en sheets, crear uno por defecto
         if not active_period:
             now = datetime.datetime.now()
             active_period = {
@@ -285,7 +261,6 @@ def load_all_data_from_sheets() -> tuple:
                 "estrategia": "balance",
                 "compras": []
             }
-            # Guardarlo inmediatamente en Sheets
             sync_period_to_sheets(active_period, "Activo")
             
         return active_period, history
