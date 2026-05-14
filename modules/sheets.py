@@ -3,7 +3,7 @@ Módulo Conector de Google Sheets para FerreCheck.
 Permite lectura y escritura síncrona en tiempo real con Google Sheets,
 con un sistema de tolerancia a fallos y fallback automático a JSON local.
 Incluye soporte para modalidades de pago (Contado / Crédito).
-Manejo de errores no bloqueante (Sin st.stop) para asegurar arranque ultra-rápido.
+Optimizado con @st.cache_resource para evitar cuelgues por rate-limiting de Google OAuth.
 """
 
 import streamlit as st
@@ -48,8 +48,9 @@ def is_sheets_active() -> bool:
     """Retorna verdadero si las credenciales de Google Sheets están configuradas."""
     return get_google_creds() is not None
 
+@st.cache_resource(show_spinner=False)
 def get_gspread_client():
-    """Autentica y retorna el cliente de gspread."""
+    """Autentica y retorna el cliente de gspread en caché para evitar cuelgues de OAuth."""
     creds_dict = get_google_creds()
     if not creds_dict:
         return None
@@ -62,24 +63,19 @@ def get_gspread_client():
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         return gspread.authorize(credentials)
     except Exception as e:
-        st.sidebar.error(f"Error de Autenticación de Google API: {str(e)}")
         return None
 
-def get_or_init_sheets(client) -> tuple:
-    """
-    Busca la hoja de cálculo por nombre de manera no bloqueante.
-    Si no existe o no tiene acceso, retorna (None, None) y avisa en la UI
-    sin detener la ejecución de Streamlit.
-    """
+@st.cache_resource(show_spinner=False)
+def get_cached_sheets(_client):
+    """Obtiene y estructura las hojas de trabajo en caché para acceso instantáneo."""
     try:
-        sh = client.open(SPREADSHEET_NAME)
+        sh = _client.open(SPREADSHEET_NAME)
     except gspread.SpreadsheetNotFound:
         try:
-            sh = client.create(SPREADSHEET_NAME)
+            sh = _client.create(SPREADSHEET_NAME)
         except Exception:
             creds = get_google_creds()
             email = creds.get("client_email", "su-email-de-servicio@gserviceaccount.com")
-            
             st.warning(
                 f"⚠️ **Google Sheets Conectado pero falta compartir el archivo**\n\n"
                 f"Tu aplicación arrancó en **Modo Local (Respaldo)** porque no pudo acceder al archivo `{SPREADSHEET_NAME}`.\n\n"
@@ -112,6 +108,10 @@ def get_or_init_sheets(client) -> tuple:
         ws_compras.update_cell(1, len(headers) + 1, "modalidad")
         
     return ws_periodos, ws_compras
+
+def get_or_init_sheets(client) -> tuple:
+    """Envoltura para obtener las hojas cacheadas."""
+    return get_cached_sheets(client)
 
 def sync_period_to_sheets(p: dict, estado: str = "Activo"):
     """Guarda o actualiza la configuración de un período en la hoja de Google Sheets."""
@@ -149,9 +149,7 @@ def sync_period_to_sheets(p: dict, estado: str = "Activo"):
         pass
 
 def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo"):
-    """
-    Sincroniza toda la lista de compras del período actual con la hoja de Google Sheets.
-    """
+    """Sincroniza toda la lista de compras del período actual con la hoja de Google Sheets."""
     client = get_gspread_client()
     if not client:
         return
@@ -196,10 +194,7 @@ def close_period_in_sheets(p: dict):
     sync_all_purchases_to_sheets(p["compras"], p, estado="Cerrado")
 
 def load_all_data_from_sheets() -> tuple:
-    """
-    Carga todos los datos de Google Sheets reconstruyendo el estado con modalidades de pago.
-    Retorna (active_period, history) de forma segura sin detener la app.
-    """
+    """Carga todos los datos de Google Sheets reconstruyendo el estado con modalidades de pago."""
     client = get_gspread_client()
     if not client:
         return None, None
