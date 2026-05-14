@@ -3,6 +3,7 @@ Módulo Conector de Google Sheets para FerreCheck.
 Permite lectura y escritura síncrona en tiempo real con Google Sheets,
 con un sistema de tolerancia a fallos y fallback automático a JSON local.
 Incluye soporte para modalidades de pago (Contado / Crédito).
+Manejo de errores no bloqueante (Sin st.stop) para asegurar arranque ultra-rápido.
 """
 
 import streamlit as st
@@ -66,9 +67,9 @@ def get_gspread_client():
 
 def get_or_init_sheets(client) -> tuple:
     """
-    Busca la hoja de cálculo por nombre. Si no existe o no tiene acceso,
-    guía al usuario con un mensaje instructivo.
-    Retorna (sheet_periodos, sheet_compras).
+    Busca la hoja de cálculo por nombre de manera no bloqueante.
+    Si no existe o no tiene acceso, retorna (None, None) y avisa en la UI
+    sin detener la ejecución de Streamlit.
     """
     try:
         sh = client.open(SPREADSHEET_NAME)
@@ -79,16 +80,16 @@ def get_or_init_sheets(client) -> tuple:
             creds = get_google_creds()
             email = creds.get("client_email", "su-email-de-servicio@gserviceaccount.com")
             
-            st.error(
-                f"🛑 **No se encontró el archivo de Google Sheets '{SPREADSHEET_NAME}'**\n\n"
-                f"Por favor, sigue estos pasos para activarlo:\n"
+            st.warning(
+                f"⚠️ **Google Sheets Conectado pero falta compartir el archivo**\n\n"
+                f"Tu aplicación arrancó en **Modo Local (Respaldo)** porque no pudo acceder al archivo `{SPREADSHEET_NAME}`.\n\n"
+                f"**Para activar la sincronización en vivo:**\n"
                 f"1. Crea una hoja de cálculo en tu Google Drive llamada exactamente: **`{SPREADSHEET_NAME}`**\n"
-                f"2. Haz clic en **Compartir** en la esquina superior derecha.\n"
-                f"3. Comparte el archivo con el siguiente correo electrónico de servicio (permiso de Editor):\n"
+                f"2. Compártela como Editor con este correo:\n"
                 f"   `{email}`\n"
-                f"4. Recarga esta página."
+                f"3. Recarga la página."
             )
-            st.stop()
+            return None, None
             
     try:
         ws_periodos = sh.worksheet("Periodos")
@@ -106,7 +107,6 @@ def get_or_init_sheets(client) -> tuple:
             "id", "ano", "mes", "fecha", "proveedor", "monto", "nota", "estado", "modalidad"
         ])
         
-    # Validar y asegurar que exista la columna modalidad en hojas existentes (retrocompatibilidad)
     headers = ws_compras.row_values(1)
     if "modalidad" not in headers:
         ws_compras.update_cell(1, len(headers) + 1, "modalidad")
@@ -120,7 +120,10 @@ def sync_period_to_sheets(p: dict, estado: str = "Activo"):
         return
         
     try:
-        ws_periodos, _ = get_or_init_sheets(client)
+        res = get_or_init_sheets(client)
+        if res == (None, None):
+            return
+        ws_periodos, _ = res
         period_id = f"{p['ano']}_{p['mes']}"
         cell = ws_periodos.find(period_id, in_column=1)
         
@@ -143,19 +146,21 @@ def sync_period_to_sheets(p: dict, estado: str = "Activo"):
             ws_periodos.append_row(row_data)
             
     except Exception as e:
-        st.sidebar.warning(f"⚠️ Error al sincronizar período con Google Sheets: {str(e)}")
+        pass
 
 def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo"):
     """
     Sincroniza toda la lista de compras del período actual con la hoja de Google Sheets.
-    Incluye la columna modalidad.
     """
     client = get_gspread_client()
     if not client:
         return
         
     try:
-        _, ws_compras = get_or_init_sheets(client)
+        res = get_or_init_sheets(client)
+        if res == (None, None):
+            return
+        _, ws_compras = res
         all_rows = ws_compras.get_all_values()
         headers = all_rows[0]
         
@@ -183,7 +188,7 @@ def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo")
         ws_compras.update("A1", new_rows)
         
     except Exception as e:
-        st.sidebar.warning(f"⚠️ Error al sincronizar compras con Google Sheets: {str(e)}")
+        pass
 
 def close_period_in_sheets(p: dict):
     """Marca el período actual y sus compras como 'Cerrado' en Google Sheets."""
@@ -193,13 +198,18 @@ def close_period_in_sheets(p: dict):
 def load_all_data_from_sheets() -> tuple:
     """
     Carga todos los datos de Google Sheets reconstruyendo el estado con modalidades de pago.
+    Retorna (active_period, history) de forma segura sin detener la app.
     """
     client = get_gspread_client()
     if not client:
         return None, None
         
     try:
-        ws_periodos, ws_compras = get_or_init_sheets(client)
+        res = get_or_init_sheets(client)
+        if res == (None, None):
+            return None, None
+        ws_periodos, ws_compras = res
+        
         periodos_rows = ws_periodos.get_all_records()
         compras_rows = ws_compras.get_all_records()
         
@@ -266,5 +276,4 @@ def load_all_data_from_sheets() -> tuple:
         return active_period, history
         
     except Exception as e:
-        st.sidebar.error(f"❌ Error al cargar datos desde Google Sheets: {str(e)}")
         return None, None
