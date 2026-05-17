@@ -105,7 +105,11 @@ def get_cached_sheets(_client):
         
     headers = ws_compras.row_values(1)
     if "modalidad" not in headers:
-        ws_compras.update_cell(1, len(headers) + 1, "modalidad")
+        try:
+            ws_compras.update_cell(1, len(headers) + 1, "modalidad")
+        except gspread.exceptions.APIError:
+            ws_compras.add_cols(1)
+            ws_compras.update_cell(1, len(headers) + 1, "modalidad")
         
     return ws_periodos, ws_compras
 
