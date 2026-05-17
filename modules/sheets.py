@@ -193,6 +193,22 @@ def close_period_in_sheets(p: dict):
     sync_period_to_sheets(p, estado="Cerrado")
     sync_all_purchases_to_sheets(p["compras"], p, estado="Cerrado")
 
+def safe_float(val):
+    if isinstance(val, str):
+        val = val.replace("Q", "").replace(",", "").strip()
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+def safe_int(val):
+    if isinstance(val, str):
+        val = val.replace(",", "").strip()
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return 0
+
 def load_all_data_from_sheets() -> tuple:
     """Carga todos los datos de Google Sheets reconstruyendo el estado con modalidades de pago."""
     client = get_gspread_client()
@@ -213,31 +229,31 @@ def load_all_data_from_sheets() -> tuple:
         
         for r in periodos_rows:
             p_data = {
-                "ano": int(r["ano"]),
-                "mes": int(r["mes"]),
-                "ventas": float(r["ventas"]),
+                "ano": safe_int(r.get("ano", 0)),
+                "mes": safe_int(r.get("mes", 0)),
+                "ventas": safe_float(r.get("ventas", 0)),
                 "gastos": {
-                    "planilla": float(r["planilla"]),
-                    "renta": float(r["renta"]),
-                    "luz": float(r["luz"]),
-                    "otros": float(r["otros"])
+                    "planilla": safe_float(r.get("planilla", 0)),
+                    "renta": safe_float(r.get("renta", 0)),
+                    "luz": safe_float(r.get("luz", 0)),
+                    "otros": safe_float(r.get("otros", 0))
                 },
-                "estrategia": r["estrategia"],
+                "estrategia": str(r.get("estrategia", "balance")),
                 "compras": []
             }
             
             for c in compras_rows:
-                if int(c["ano"]) == p_data["ano"] and int(c["mes"]) == p_data["mes"]:
+                if safe_int(c.get("ano", 0)) == p_data["ano"] and safe_int(c.get("mes", 0)) == p_data["mes"]:
                     p_data["compras"].append({
-                        "id": str(c["id"]),
-                        "monto": float(c["monto"]),
-                        "proveedor": str(c["proveedor"]),
-                        "fecha": str(c["fecha"]),
-                        "nota": str(c["nota"]),
+                        "id": str(c.get("id", "")),
+                        "monto": safe_float(c.get("monto", 0)),
+                        "proveedor": str(c.get("proveedor", "")),
+                        "fecha": str(c.get("fecha", "")),
+                        "nota": str(c.get("nota", "")),
                         "modalidad": str(c.get("modalidad", "Contado")) if c.get("modalidad") else "Contado"
                     })
                     
-            if r["estado"] == "Activo":
+            if r.get("estado") == "Activo":
                 active_period = p_data
             else:
                 yr_str = str(p_data["ano"])
@@ -271,4 +287,5 @@ def load_all_data_from_sheets() -> tuple:
         return active_period, history
         
     except Exception as e:
+        st.sidebar.error(f"❌ Error interno al cargar desde Google Sheets: {str(e)}")
         return None, None
