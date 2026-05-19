@@ -21,6 +21,7 @@ from modules.sheets import (
     load_all_data_from_sheets,
     sync_period_to_sheets,
     sync_all_purchases_to_sheets,
+    sync_all_sales_to_sheets,
     close_period_in_sheets
 )
 
@@ -67,6 +68,9 @@ def load_current_period() -> dict:
             
         p_sheets, h_sheets = load_all_data_from_sheets()
         if p_sheets is not None:
+            # Garantizar que ventas_diarias exista
+            if "ventas_diarias" not in p_sheets:
+                p_sheets["ventas_diarias"] = []
             st.session_state.periodo_actual_sheets = p_sheets
             st.session_state.historial_sheets = h_sheets
             return p_sheets
@@ -77,6 +81,10 @@ def load_current_period() -> dict:
             with open(CURRENT_PERIOD_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if data:
+                    if "ventas_diarias" not in data:
+                        data["ventas_diarias"] = []
+                    if "compras" not in data:
+                        data["compras"] = []
                     return data
         except Exception:
             pass
@@ -94,7 +102,8 @@ def load_current_period() -> dict:
             "otros": 4500.0
         },
         "estrategia": "balance",
-        "compras": []
+        "compras": [],
+        "ventas_diarias": []
     }
 
 def save_current_period(p: dict):
@@ -127,7 +136,8 @@ def save_period(p: dict):
         "ventas": p["ventas"],
         "gastos": p["gastos"].copy(),
         "estrategia": p["estrategia"],
-        "compras": p["compras"].copy()
+        "compras": p["compras"].copy(),
+        "ventas_diarias": p.get("ventas_diarias", []).copy()
     }
     
     save_history(history)
@@ -142,6 +152,8 @@ def render_history_view():
     
     # 1. Sección de Copia de Seguridad y Restauración (Backup & Restore)
     with st.expander("💾 Copia de Seguridad y Restauración (Sin Base de Datos)", expanded=False):
+        if is_sheets_active():
+            st.info("💡 **Google Sheets está Activo:** Tus datos se guardan y sincronizan automáticamente en la nube en tiempo real. Esta sección de respaldo local es opcional pero te sirve como copia de seguridad personal extra.")
         col_backup, col_restore = st.columns(2, gap="medium")
         
         with col_backup:
@@ -181,6 +193,11 @@ def render_history_view():
                             if is_sheets_active():
                                 sync_period_to_sheets(uploaded_data["current_period"], "Activo")
                                 sync_all_purchases_to_sheets(uploaded_data["current_period"]["compras"], uploaded_data["current_period"])
+                                # DEEP-03 FIX: Sincronizar también las ventas diarias restauradas
+                                ventas_restauradas = uploaded_data["current_period"].get("ventas_diarias", [])
+                                if ventas_restauradas:
+                                    from modules.sheets import sync_all_sales_to_sheets
+                                    sync_all_sales_to_sheets(ventas_restauradas, uploaded_data["current_period"])
                                 # Guardar también el histórico completo en Google Sheets requeriría iterar,
                                 # pero lo guardamos en caché temporal
                                 if "historial_sheets" in st.session_state:
@@ -265,25 +282,52 @@ def render_close_period_button(p: dict):
     st.sidebar.markdown("---")
     st.sidebar.subheader("📦 Cierre de Período")
     
+    # Importación tardía intencional para evitar circularidad: daily_sales ← history ← sheets
+    from modules.daily_sales import get_monthly_sales_total
+    total_diarias = get_monthly_sales_total(p)
+    
+    next_month = p["mes"] + 1
+    next_year = p["ano"]
+    if next_month > 12:
+        next_month = 1
+        next_year += 1
+        
     with st.sidebar.expander("🔐 Cerrar Mes Actual", expanded=False):
-        st.write("El cierre archivará las ventas, gastos y compras registradas para este período en el historial multi-período.")
+        if total_diarias > 0:
+            st.markdown(
+                f"""
+                <div style="background-color: rgba(9, 171, 59, 0.1); padding: 10px; border-radius: 5px; border-left: 3px solid #09AB3B; margin-bottom: 10px;">
+                    💡 Tienes <b>{format_currency(total_diarias)}</b> registrados en Ventas Diarias.<br><br>
+                    Al cerrar, este monto se guardará como el total real de ventas de este mes y se pre-llenará automáticamente como 'Ventas Mes Anterior' para {get_month_name(next_month)}.
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            st.write("El cierre archivará las ventas, gastos y compras registradas para este período en el historial multi-período.")
+            
         st.warning("⚠️ Esta acción no se puede deshacer.")
         
         confirmado = st.checkbox("Confirmar cierre de período", value=False)
         
         if st.button("📦 Cerrar y Archivar Período", type="primary", disabled=not confirmado, use_container_width=True):
+            # FIX BUG-01: Una sola asignación cláramente intencional antes de archivar.
+            # Si hay ventas diarias registradas, usarlas como el total real del mes que se cierra.
+            # Este mismo valor se heredará como 'Ventas Mes Anterior' en el nuevo período.
+            if total_diarias > 0:
+                p["ventas"] = total_diarias
+            # Si NO hay ventas diarias, se archiva con el valor manual del sidebar (sin cambios).
+                
             save_period(p)
             
-            next_month = p["mes"] + 1
-            next_year = p["ano"]
-            if next_month > 12:
-                next_month = 1
-                next_year += 1
-                
+            # Preparar el nuevo período limpio.
+            # p["ventas"] ya tiene el valor correcto para heredar al nuevo mes (lo estableció la línea anterior).
             p["mes"] = next_month
             p["ano"] = next_year
             p["compras"] = []
-            
+            p["ventas_diarias"] = []
+            # NOTA: p["ventas"] NO se toca aquí — hereda correctamente del mes cerrado.
+                
             # Guardar silenciosamente el nuevo estado limpio de período actual
             save_current_period(p)
             
@@ -293,8 +337,12 @@ def render_close_period_button(p: dict):
                     del st.session_state.periodo_actual_sheets
                 if "historial_sheets" in st.session_state:
                     del st.session_state.historial_sheets
-                sync_period_to_sheets(p, "Activo")
-                sync_all_purchases_to_sheets([], p, "Activo")
+                try:
+                    sync_period_to_sheets(p, "Activo")
+                    sync_all_purchases_to_sheets([], p, "Activo")
+                    sync_all_sales_to_sheets([], p, "Activo")
+                except Exception as e:
+                    st.sidebar.warning(f"⚠️ Período cerrado localmente, pero hubo un error al sincronizar con Google Sheets: {str(e)}")
             
             st.toast(f"¡Período cerrado con éxito! Iniciando período {get_month_name(next_month)} {next_year}.", icon="📦")
             st.balloons()

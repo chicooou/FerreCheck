@@ -58,6 +58,19 @@ def render_sidebar() -> dict:
     )
     p["ventas"] = ventas
 
+    from modules.daily_sales import get_monthly_sales_total
+    total_diario = get_monthly_sales_total(p)
+    if total_diario > 0:
+        st.sidebar.markdown(
+            f"""
+            <div style="background-color: rgba(9, 171, 59, 0.1); border-left: 3px solid #09AB3B; padding: 8px; border-radius: 4px; font-size: 12px; color: #E0E0E0; margin-top: -10px; margin-bottom: 10px;">
+                💡 <b>{format_currency(total_diario)}</b> registrados en Ventas Diarias.<br>
+                <span style="opacity:0.75;">El Semáforo usa el valor manual de arriba. Al <b>Cerrar el Período</b>, el total diario reemplazará ese valor automáticamente.</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
     # Gastos Fijos (en un expander para no saturar visualmente)
     with st.sidebar.expander("📋 Detalle de Gastos Fijos", expanded=True):
         planilla = st.number_input("Planilla / Sueldos", min_value=0.0, value=float(p["gastos"]["planilla"]), step=1000.0)

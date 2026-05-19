@@ -44,6 +44,7 @@ def get_google_creds():
             
     return None
 
+@st.cache_data(ttl=60, show_spinner=False)
 def is_sheets_active() -> bool:
     """Retorna verdadero si las credenciales de Google Sheets están configuradas."""
     return get_google_creds() is not None
@@ -85,7 +86,7 @@ def get_cached_sheets(_client):
                 f"   `{email}`\n"
                 f"3. Recarga la página."
             )
-            return None, None
+            return None, None, None
             
     try:
         ws_periodos = sh.worksheet("Periodos")
@@ -110,8 +111,16 @@ def get_cached_sheets(_client):
         except gspread.exceptions.APIError:
             ws_compras.add_cols(1)
             ws_compras.update_cell(1, len(headers) + 1, "modalidad")
+            
+    try:
+        ws_ventas = sh.worksheet("VentasDiarias")
+    except gspread.WorksheetNotFound:
+        ws_ventas = sh.add_worksheet(title="VentasDiarias", rows="5000", cols="7")
+        ws_ventas.append_row([
+            "id", "ano", "mes", "fecha", "monto", "nota", "estado"
+        ])
         
-    return ws_periodos, ws_compras
+    return ws_periodos, ws_compras, ws_ventas
 
 def get_or_init_sheets(client) -> tuple:
     """Envoltura para obtener las hojas cacheadas."""
@@ -125,9 +134,9 @@ def sync_period_to_sheets(p: dict, estado: str = "Activo"):
         
     try:
         res = get_or_init_sheets(client)
-        if res == (None, None):
+        if not res or res[0] is None:
             return
-        ws_periodos, _ = res
+        ws_periodos = res[0]
         period_id = f"{p['ano']}_{p['mes']}"
         cell = ws_periodos.find(period_id, in_column=1)
         
@@ -150,7 +159,7 @@ def sync_period_to_sheets(p: dict, estado: str = "Activo"):
             ws_periodos.append_row(row_data)
             
     except Exception as e:
-        pass
+        st.session_state.setdefault("sheets_sync_errors", []).append(f"sync_period: {str(e)}")
 
 def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo"):
     """Sincroniza toda la lista de compras del período actual con la hoja de Google Sheets."""
@@ -160,16 +169,17 @@ def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo")
         
     try:
         res = get_or_init_sheets(client)
-        if res == (None, None):
+        if not res or res[0] is None:
             return
-        _, ws_compras = res
+        ws_compras = res[1]
         all_rows = ws_compras.get_all_values()
         headers = all_rows[0]
         
         new_rows = [headers]
         for row in all_rows[1:]:
             if len(row) >= 8:
-                if not (int(row[1]) == int(p["ano"]) and int(row[2]) == int(p["mes"]) and row[7] == "Activo"):
+                # BUG-05 FIX: usar safe_int() en lugar de int() para tolerar celdas vacías
+                if not (safe_int(row[1]) == int(p["ano"]) and safe_int(row[2]) == int(p["mes"]) and row[7] == "Activo"):
                     new_rows.append(row)
                     
         for c in compras:
@@ -190,12 +200,60 @@ def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo")
         ws_compras.update("A1", new_rows)
         
     except Exception as e:
-        pass
+        # TECH-01 FIX: acumular errores en session_state en lugar de silenciarlos
+        st.session_state.setdefault("sheets_sync_errors", []).append(f"sync_compras: {str(e)}")
+
+def sync_all_sales_to_sheets(ventas_diarias: list, p: dict, estado: str = "Activo"):
+    """Sincroniza toda la lista de ventas diarias del período actual con la hoja de Google Sheets."""
+    client = get_gspread_client()
+    if not client:
+        return
+        
+    try:
+        res = get_or_init_sheets(client)
+        # BUG-02 FIX: verificar que res tiene 3 elementos antes de acceder a res[2]
+        # Esto protege a usuarios que ya tenían la app con solo 2 hojas y cuyo caché aún no se ha invalidado
+        if not res or len(res) < 3 or res[2] is None:
+            return
+        ws_ventas = res[2]
+        all_rows = ws_ventas.get_all_values()
+        
+        if not all_rows:
+            headers = ["id", "ano", "mes", "fecha", "monto", "nota", "estado"]
+        else:
+            headers = all_rows[0]
+        
+        new_rows = [headers]
+        for row in all_rows[1:]:
+            if len(row) >= 7:
+                # BUG-05 FIX: usar safe_int() para tolerar celdas vacías o malformadas
+                if not (safe_int(row[1]) == int(p["ano"]) and safe_int(row[2]) == int(p["mes"]) and row[6] == "Activo"):
+                    new_rows.append(row)
+                    
+        for v in ventas_diarias:
+            new_rows.append([
+                v["id"],
+                int(p["ano"]),
+                int(p["mes"]),
+                v["fecha"],
+                float(v["monto"]),
+                v["nota"],
+                estado
+            ])
+            
+        ws_ventas.clear()
+        ws_ventas.update("A1", new_rows)
+        
+    except Exception as e:
+        # TECH-01 FIX: acumular errores en session_state
+        st.session_state.setdefault("sheets_sync_errors", []).append(f"sync_ventas_diarias: {str(e)}")
 
 def close_period_in_sheets(p: dict):
-    """Marca el período actual y sus compras como 'Cerrado' en Google Sheets."""
+    """Marca el período actual, sus compras y sus ventas como 'Cerrado' en Google Sheets."""
     sync_period_to_sheets(p, estado="Cerrado")
     sync_all_purchases_to_sheets(p["compras"], p, estado="Cerrado")
+    ventas_diarias = p.get("ventas_diarias", [])
+    sync_all_sales_to_sheets(ventas_diarias, p, estado="Cerrado")
 
 def safe_float(val):
     if isinstance(val, str):
@@ -221,20 +279,53 @@ def load_all_data_from_sheets() -> tuple:
         
     try:
         res = get_or_init_sheets(client)
-        if res == (None, None):
+        if not res or res[0] is None:
             return None, None
-        ws_periodos, ws_compras = res
+        ws_periodos = res[0]
+        ws_compras = res[1]
+        
+        # BUG-02 / DEEP-01 FIX: Guardia de longitud para evitar IndexError con caches viejos
+        ws_ventas = res[2] if len(res) > 2 else None
         
         periodos_rows = ws_periodos.get_all_records()
         compras_rows = ws_compras.get_all_records()
+        ventas_rows = ws_ventas.get_all_records() if ws_ventas is not None else []
         
+        # PERF-04 FIX: Agrupar compras y ventas por (ano, mes) para optimizar complejidad de O(n^2) a O(n)
+        from collections import defaultdict
+        compras_por_periodo = defaultdict(list)
+        for c in compras_rows:
+            key = (safe_int(c.get("ano", 0)), safe_int(c.get("mes", 0)))
+            compras_por_periodo[key].append({
+                "id": str(c.get("id", "")),
+                "monto": safe_float(c.get("monto", 0)),
+                "proveedor": str(c.get("proveedor", "")),
+                "fecha": str(c.get("fecha", "")),
+                "nota": str(c.get("nota", "")),
+                "modalidad": str(c.get("modalidad", "Contado")) if c.get("modalidad") else "Contado"
+            })
+            
+        ventas_por_periodo = defaultdict(list)
+        for v in ventas_rows:
+            key = (safe_int(v.get("ano", 0)), safe_int(v.get("mes", 0)))
+            ventas_por_periodo[key].append({
+                "id": str(v.get("id", "")),
+                "monto": safe_float(v.get("monto", 0)),
+                "fecha": str(v.get("fecha", "")),
+                "nota": str(v.get("nota", ""))
+            })
+            
         active_period = None
         history = {}
         
         for r in periodos_rows:
+            ano_val = safe_int(r.get("ano", 0))
+            mes_val = safe_int(r.get("mes", 0))
+            period_key = (ano_val, mes_val)
+            
             p_data = {
-                "ano": safe_int(r.get("ano", 0)),
-                "mes": safe_int(r.get("mes", 0)),
+                "ano": ano_val,
+                "mes": mes_val,
                 "ventas": safe_float(r.get("ventas", 0)),
                 "gastos": {
                     "planilla": safe_float(r.get("planilla", 0)),
@@ -243,20 +334,10 @@ def load_all_data_from_sheets() -> tuple:
                     "otros": safe_float(r.get("otros", 0))
                 },
                 "estrategia": str(r.get("estrategia", "balance")),
-                "compras": []
+                "compras": compras_por_periodo.get(period_key, []),
+                "ventas_diarias": ventas_por_periodo.get(period_key, [])
             }
             
-            for c in compras_rows:
-                if safe_int(c.get("ano", 0)) == p_data["ano"] and safe_int(c.get("mes", 0)) == p_data["mes"]:
-                    p_data["compras"].append({
-                        "id": str(c.get("id", "")),
-                        "monto": safe_float(c.get("monto", 0)),
-                        "proveedor": str(c.get("proveedor", "")),
-                        "fecha": str(c.get("fecha", "")),
-                        "nota": str(c.get("nota", "")),
-                        "modalidad": str(c.get("modalidad", "Contado")) if c.get("modalidad") else "Contado"
-                    })
-                    
             if r.get("estado") == "Activo":
                 active_period = p_data
             else:
@@ -268,7 +349,8 @@ def load_all_data_from_sheets() -> tuple:
                     "ventas": p_data["ventas"],
                     "gastos": p_data["gastos"],
                     "estrategia": p_data["estrategia"],
-                    "compras": p_data["compras"]
+                    "compras": p_data["compras"],
+                    "ventas_diarias": p_data["ventas_diarias"]
                 }
                 
         if not active_period:
@@ -284,7 +366,8 @@ def load_all_data_from_sheets() -> tuple:
                     "otros": 4500.0
                 },
                 "estrategia": "balance",
-                "compras": []
+                "compras": [],
+                "ventas_diarias": []
             }
             sync_period_to_sheets(active_period, "Activo")
             

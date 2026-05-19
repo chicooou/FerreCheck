@@ -10,6 +10,7 @@ import os
 from modules.sidebar import render_sidebar
 from modules.dashboard import render_dashboard
 from modules.purchases import render_purchase_form, render_purchase_table
+from modules.daily_sales import render_daily_sale_form, render_daily_sales_table, render_sales_kpis
 from modules.export import render_export_button
 from modules.history import (
     render_history_view,
@@ -84,9 +85,11 @@ st.markdown(
 )
 
 # 6. Renderizar Pestañas Principales (Tabs)
-tab_dashboard, tab_compras, tab_historial = st.tabs([
+st.markdown(" ") # Spacer
+tab_dashboard, tab_compras, tab_ventas, tab_historial = st.tabs([
     "📊 Cuadro de Mando (Dashboard)", 
     "📝 Registro de Compras", 
+    "📈 Ventas Diarias",
     "📜 Historial Multi-Período"
 ])
 
@@ -103,6 +106,16 @@ with tab_compras:
         render_purchase_table(p, limite_real)
         st.write("---")
         render_export_button(p)
+
+with tab_ventas:
+    render_sales_kpis(p)
+    col_form_v, col_tabla_v = st.columns([1, 2], gap="large")
+    
+    with col_form_v:
+        render_daily_sale_form(p)
+        
+    with col_tabla_v:
+        render_daily_sales_table(p)
 
 with tab_historial:
     render_history_view()
