@@ -64,7 +64,7 @@ def render_sidebar() -> dict:
         st.sidebar.markdown(
             f"""
             <div style="background-color: rgba(9, 171, 59, 0.1); border-left: 3px solid #09AB3B; padding: 8px; border-radius: 4px; font-size: 12px; color: #E0E0E0; margin-top: -10px; margin-bottom: 10px;">
-                💡 <b>{format_currency(total_diario)}</b> registrados en Ventas Diarias.<br>
+                💡 <b>{format_currency(total_diario)}</b> acumulados en Caja Diaria este mes.<br>
                 <span style="opacity:0.75;">El Semáforo usa el valor manual de arriba. Al <b>Cerrar el Período</b>, el total diario reemplazará ese valor automáticamente.</span>
             </div>
             """,

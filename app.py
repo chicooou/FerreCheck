@@ -10,7 +10,7 @@ import os
 from modules.sidebar import render_sidebar
 from modules.dashboard import render_dashboard
 from modules.purchases import render_purchase_form, render_purchase_table
-from modules.daily_sales import render_daily_sale_form, render_daily_sales_table, render_sales_kpis
+from modules.daily_sales import render_daily_sale_form, render_daily_sales_table, render_sales_kpis, render_analytics_panel
 from modules.export import render_export_button
 from modules.history import (
     render_history_view,
@@ -89,7 +89,7 @@ st.markdown(" ") # Spacer
 tab_dashboard, tab_compras, tab_ventas, tab_historial = st.tabs([
     "📊 Cuadro de Mando (Dashboard)", 
     "📝 Registro de Compras", 
-    "📈 Ventas Diarias",
+    "📈 Caja Diaria",
     "📜 Historial Multi-Período"
 ])
 
@@ -116,6 +116,8 @@ with tab_ventas:
         
     with col_tabla_v:
         render_daily_sales_table(p)
+        
+    render_analytics_panel(p)
 
 with tab_historial:
     render_history_view()

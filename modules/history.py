@@ -297,8 +297,8 @@ def render_close_period_button(p: dict):
             st.markdown(
                 f"""
                 <div style="background-color: rgba(9, 171, 59, 0.1); padding: 10px; border-radius: 5px; border-left: 3px solid #09AB3B; margin-bottom: 10px;">
-                    💡 Tienes <b>{format_currency(total_diarias)}</b> registrados en Ventas Diarias.<br><br>
-                    Al cerrar, este monto se guardará como el total real de ventas de este mes y se pre-llenará automáticamente como 'Ventas Mes Anterior' para {get_month_name(next_month)}.
+                    💡 Tienes <b>{format_currency(total_diarias)}</b> acumulados en Caja Diaria.<br><br>
+                    Al cerrar, este monto se guardará como el total real facturado de este mes y se pre-llenará automáticamente como 'Ventas Mes Anterior' para {get_month_name(next_month)}.
                 </div>
                 """,
                 unsafe_allow_html=True
