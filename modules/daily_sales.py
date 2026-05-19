@@ -198,26 +198,36 @@ def render_analytics_panel(p: dict):
     st.markdown("### 📊 Analíticas e Insights de Caja")
     ventas = p.get("ventas_diarias", [])
     
-    if len(ventas) < 2:
-        st.info("💡 Se necesitan al menos **2 días registrados** para generar promedios, tendencias y proyecciones de caja.")
+    if len(ventas) == 0:
         return
         
     df = pd.DataFrame(ventas)
     df["monto"] = df["monto"].astype(float)
     df["fecha_dt"] = pd.to_datetime(df["fecha"], errors="coerce")
     
-    # 1. Cálculos de métricas core
-    total_acumulado = df["monto"].sum()
-    cantidad_dias = len(df)
+    # QA FIX: Descartar fechas inválidas generadas por data corrupta
+    df = df.dropna(subset=["fecha_dt"])
+    
+    # QA FIX: Agrupar por fecha. Múltiples registros el mismo día (ej. varios cortes) 
+    # se suman y se tratan matemáticamente como 1 solo día.
+    df_agrupado = df.groupby('fecha_dt', as_index=False)['monto'].sum()
+    
+    if df_agrupado.shape[0] < 2:
+        st.info("💡 Se necesitan al menos **2 días distintos** con ingresos para generar promedios, tendencias y proyecciones.")
+        return
+        
+    # 1. Cálculos de métricas core sobre datos agrupados
+    total_acumulado = df_agrupado["monto"].sum()
+    cantidad_dias = df_agrupado.shape[0]
     promedio_diario = total_acumulado / cantidad_dias
     
-    idx_max = df["monto"].idxmax()
-    monto_max = df.loc[idx_max, "monto"]
-    fecha_max = pd.to_datetime(df.loc[idx_max, "fecha"]).strftime("%d/%m/%Y")
+    idx_max = df_agrupado["monto"].idxmax()
+    monto_max = df_agrupado.loc[idx_max, "monto"]
+    fecha_max = df_agrupado.loc[idx_max, "fecha_dt"].strftime("%d/%m/%Y")
     
-    idx_min = df["monto"].idxmin()
-    monto_min = df.loc[idx_min, "monto"]
-    fecha_min = pd.to_datetime(df.loc[idx_min, "fecha"]).strftime("%d/%m/%Y")
+    idx_min = df_agrupado["monto"].idxmin()
+    monto_min = df_agrupado.loc[idx_min, "monto"]
+    fecha_min = df_agrupado.loc[idx_min, "fecha_dt"].strftime("%d/%m/%Y")
     
     # Días totales del mes
     dias_del_mes = get_last_day_of_month(p["ano"], p["mes"])
@@ -285,8 +295,8 @@ def render_analytics_panel(p: dict):
     st.write(" ")
     st.markdown("#### 📈 Distribución de Caja Diaria por Fecha")
     
-    # Crear un dataset ordenado por fecha cronológica para el gráfico
-    df_chart = df.sort_values("fecha_dt")
+    # Crear un dataset ordenado por fecha cronológica para el gráfico (usando datos agrupados limpios)
+    df_chart = df_agrupado.sort_values("fecha_dt")
     df_chart["Día"] = df_chart["fecha_dt"].dt.strftime("%d/%m")
     df_chart = df_chart.set_index("Día")
     
