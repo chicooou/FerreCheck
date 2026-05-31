@@ -11,15 +11,20 @@ from config import format_currency, ESTRATEGIAS, MESES, get_month_name
 from modules.engine import obtener_estado_semaforo
 
 
+def clean_html(html_str: str) -> str:
+    """Elimina toda la de indentación de cada línea de la cadena HTML para evitar bloques de código Markdown."""
+    return "\n".join(line.strip() for line in html_str.splitlines())
+
+
 def render_kpi_card(titulo: str, valor: str, icono: str, ayuda: str = "") -> str:
     """Retorna código HTML para una tarjeta KPI premium."""
     tooltip = f'title="{ayuda}"' if ayuda else ""
-    return f"""
+    return clean_html(f"""
     <div class="kpi-container" {tooltip}>
         <div class="kpi-title">{icono} {titulo}</div>
         <div class="kpi-value">{valor}</div>
     </div>
-    """
+    """)
 
 
 def render_dashboard(p: dict, calc_results: dict):
@@ -30,7 +35,7 @@ def render_dashboard(p: dict, calc_results: dict):
     # 1. Cabecera con Badge de Estrategia Activa
     est_info = ESTRATEGIAS.get(p["estrategia"], ESTRATEGIAS["balance"])
     st.markdown(
-        textwrap.dedent(f"""
+        clean_html(f"""
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
             <h3 style="margin: 0; font-size: 20px; font-weight: 600; color: #FFFFFF;">📊 Estado de Flujo de Caja</h3>
             <span class="strategy-badge strategy-badge-{p['estrategia']}">{est_info['nombre']}</span>
@@ -156,7 +161,7 @@ def render_dashboard(p: dict, calc_results: dict):
 
         # Card 1: Operación en Curso (Hoy)
         st.markdown(
-            textwrap.dedent(f"""
+            clean_html(f"""
             <div class="dashboard-card">
                 <h4 style="margin-top:0; margin-bottom:15px; color:#FFFFFF; font-size:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
                     🎯 Operación en Curso ({nombre_mes_actual})
@@ -423,4 +428,4 @@ def render_barras_predictivas(calc_results: dict):
             """
             
     html += "</div>"
-    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+    st.markdown(clean_html(html), unsafe_allow_html=True)
