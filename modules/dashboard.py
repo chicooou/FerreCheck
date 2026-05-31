@@ -17,13 +17,14 @@ def clean_html(html_str: str) -> str:
     return "\n".join(lines)
 
 
-def render_kpi_card(titulo: str, valor: str, icono: str, ayuda: str = "") -> str:
+def render_kpi_card(titulo: str, valor: str, icono: str, ayuda: str = "", subcontenido: str = "") -> str:
     """Retorna código HTML para una tarjeta KPI premium."""
     tooltip = f'title="{ayuda}"' if ayuda else ""
     return clean_html(f"""
     <div class="kpi-container" {tooltip}>
         <div class="kpi-title">{icono} {titulo}</div>
         <div class="kpi-value">{valor}</div>
+        {subcontenido}
     </div>
     """)
 
@@ -52,10 +53,25 @@ def render_dashboard(p: dict, calc_results: dict):
     util = calc_results["utilidad_real"]
     icono_util = "📈" if util >= 0 else "📉"
     
+    # Calcular ventas acumuladas de Caja Diaria y porcentaje de avance
+    ventas_acumuladas = sum(v["monto"] for v in p.get("ventas_diarias", []))
+    ventas_proyeccion = p.get("ventas", 0.0)
+    pct_avance = (ventas_acumuladas / ventas_proyeccion * 100.0) if ventas_proyeccion > 0 else 0.0
+    
+    subcontenido_ventas = f"""
+    <div class="kpi-subtext">
+        <span>Real ({pct_avance:.1f}%):</span>
+        <span class="kpi-subtext-val">{format_currency_clean(ventas_acumuladas)}</span>
+    </div>
+    <div class="kpi-progress-bar">
+        <div class="kpi-progress-fill" style="width: {min(pct_avance, 100.0)}%;"></div>
+    </div>
+    """
+    
     st.markdown(
         clean_html(f"""
         <div class="kpis-grid">
-            {render_kpi_card("Ventas", format_currency_clean(p["ventas"]), "💵", "Ventas del mes inmediato anterior.")}
+            {render_kpi_card("Venta Base (Proyección)", format_currency_clean(p["ventas"]), "💵", "Ventas del mes inmediato anterior usadas como proyección base para límites.", subcontenido_ventas)}
             {render_kpi_card("Gastos Fijos", format_currency_clean(calc_results["gastos_totales"]), "📋", "Suma de Planilla, Renta, Luz y Otros gastos recurrentes.")}
             {render_kpi_card("Límite de Compra", limite_texto, "🎯", "Presupuesto máximo de compras asignado al mes actual.")}
             {render_kpi_card("Utilidad Real del Mes", format_currency_clean(util), icono_util, "Ventas menos Gastos Fijos, compras al Contado, créditos vencidos este mes y deudas heredadas. Las compras a crédito con vencimiento futuro NO se descuentan aquí.")}

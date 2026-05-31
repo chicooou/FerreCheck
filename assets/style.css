@@ -236,3 +236,34 @@ html, body, [class*="css"], .stText, .stMarkdown {
     text-align: right;
 }
 
+/* Subtexto y Barra de Progreso en Tarjetas KPI */
+.kpi-subtext {
+    font-size: 11px;
+    font-weight: 500;
+    color: #8C9CAE;
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+.kpi-subtext-val {
+    font-weight: 600;
+    color: #09AB3B;
+}
+.kpi-progress-bar {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    height: 4px;
+    width: 100%;
+    overflow: hidden;
+    margin-top: 4px;
+}
+.kpi-progress-fill {
+    background-color: #09AB3B;
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+
