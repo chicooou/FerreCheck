@@ -56,12 +56,12 @@ def render_dashboard(p: dict, calc_results: dict):
     pct_avance = (ventas_acumuladas / ventas_proyeccion * 100.0) if ventas_proyeccion > 0 else 0.0
     
     subcontenido_ventas = f"""
-    <div class="kpi-subtext">
+    <div class="kpi-progress-bar" style="margin-top: 8px; margin-bottom: 6px;">
+        <div class="kpi-progress-fill" style="width: {min(pct_avance, 100.0)}%;"></div>
+    </div>
+    <div class="kpi-subtext" style="margin-top: 0;">
         <span>Base Proyección:</span>
         <span style="font-weight: 600; color: #FFFFFF;">{format_currency_clean(ventas_proyeccion)}</span>
-    </div>
-    <div class="kpi-progress-bar">
-        <div class="kpi-progress-fill" style="width: {min(pct_avance, 100.0)}%;"></div>
     </div>
     """
     
