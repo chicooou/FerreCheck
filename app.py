@@ -23,6 +23,7 @@ from modules.engine import (
     calcular_limite_compra,
     calcular_total_compras,
     calcular_utilidad_estimada,
+    calcular_utilidad_por_modalidad,
     calcular_consumo_presupuesto
 )
 
@@ -47,13 +48,29 @@ if "periodo_actual" not in st.session_state:
 # 3. Renderizar Barra Lateral (Sidebar)
 p = render_sidebar()
 
+# Garantizar que los nuevos campos existan en el período actual
+if "deudas_heredadas" not in p:
+    p["deudas_heredadas"] = []
+if "deudas_futuras" not in p:
+    p["deudas_futuras"] = []
+
 # 4. Procesamiento de Cálculos Financieros (Core Engine)
 gastos_totales = calcular_gastos_totales(p["gastos"])
 res_limite = calcular_limite_compra(p["ventas"], gastos_totales, p["estrategia"])
 
 limite_real = res_limite["limite_real"]
 total_compras = calcular_total_compras(p["compras"])
-utilidad_estimada = calcular_utilidad_estimada(p["ventas"], gastos_totales, total_compras)
+
+# Utilidad segmentada por modalidad de pago (nueva lógica)
+util_modalidad = calcular_utilidad_por_modalidad(
+    ventas=p["ventas"],
+    gastos_totales=gastos_totales,
+    compras=p["compras"],
+    deudas_heredadas=p.get("deudas_heredadas", []),
+    mes_actual=p["mes"],
+    ano_actual=p["ano"]
+)
+
 consumo_pct = calcular_consumo_presupuesto(total_compras, limite_real)
 
 calc_results = {
@@ -63,7 +80,9 @@ calc_results = {
     "fue_ajustado": res_limite["fue_ajustado"],
     "saldo_disponible": res_limite["saldo_disponible"],
     "total_compras": total_compras,
-    "utilidad_estimada": utilidad_estimada,
+    "utilidad_estimada": calcular_utilidad_estimada(p["ventas"], gastos_totales, total_compras),  # Legacy
+    "utilidad_real": util_modalidad["utilidad_real"],  # Nueva métrica correcta
+    "util_modalidad": util_modalidad,
     "consumo_pct": consumo_pct
 }
 
@@ -80,15 +99,15 @@ st.markdown(
     <p style="color: #8C9CAE; font-size: 16px; margin-top: 0; margin-bottom: 25px;">
         Control operativo de Liquidez, Gastos Fijos y Semáforo de Compras Mensuales.
     </p>
-    """, 
+    """,
     unsafe_allow_html=True
 )
 
 # 6. Renderizar Pestañas Principales (Tabs)
-st.markdown(" ") # Spacer
+st.markdown(" ")  # Spacer
 tab_dashboard, tab_compras, tab_ventas, tab_historial = st.tabs([
-    "📊 Cuadro de Mando (Dashboard)", 
-    "📝 Registro de Compras", 
+    "📊 Cuadro de Mando (Dashboard)",
+    "📝 Registro de Compras",
     "📈 Caja Diaria",
     "📜 Historial Multi-Período"
 ])
@@ -98,10 +117,10 @@ with tab_dashboard:
 
 with tab_compras:
     col_form, col_tabla = st.columns([1, 2], gap="large")
-    
+
     with col_form:
         render_purchase_form(p, limite_real)
-        
+
     with col_tabla:
         render_purchase_table(p, limite_real)
         st.write("---")
@@ -110,13 +129,13 @@ with tab_compras:
 with tab_ventas:
     render_sales_kpis(p)
     col_form_v, col_tabla_v = st.columns([1, 2], gap="large")
-    
+
     with col_form_v:
         render_daily_sale_form(p)
-        
+
     with col_tabla_v:
         render_daily_sales_table(p)
-        
+
     render_analytics_panel(p)
 
 with tab_historial:
@@ -129,8 +148,8 @@ save_current_period(p)
 st.markdown(
     """
     <div style="text-align: center; margin-top: 50px; padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); color: #5F738C; font-size: 13px;">
-        FerreCheck — Diseñado para el control de flujo de caja y compras operativas de ferreterías. Versión 1.0.
+        FerreCheck — Diseñado para el control de flujo de caja y compras operativas de ferreterías. Versión 2.0.
     </div>
-    """, 
+    """,
     unsafe_allow_html=True
 )

@@ -14,7 +14,10 @@ from modules.engine import (
     calcular_gastos_totales,
     calcular_limite_compra,
     calcular_total_compras,
-    calcular_utilidad_estimada
+    calcular_utilidad_estimada,
+    calcular_utilidad_por_modalidad,
+    resolver_deudas_para_herencia,
+    calcular_fecha_vencimiento
 )
 from modules.sheets import (
     is_sheets_active,
@@ -85,10 +88,15 @@ def load_current_period() -> dict:
                         data["ventas_diarias"] = []
                     if "compras" not in data:
                         data["compras"] = []
+                    # Nuevos campos: deudas heredadas y cola de deudas futuras
+                    if "deudas_heredadas" not in data:
+                        data["deudas_heredadas"] = []
+                    if "deudas_futuras" not in data:
+                        data["deudas_futuras"] = []
                     return data
         except Exception:
             pass
-            
+
     # Valores por defecto iniciales
     now = datetime.datetime.now()
     return {
@@ -103,7 +111,9 @@ def load_current_period() -> dict:
         },
         "estrategia": "balance",
         "compras": [],
-        "ventas_diarias": []
+        "ventas_diarias": [],
+        "deudas_heredadas": [],
+        "deudas_futuras": []
     }
 
 def save_current_period(p: dict):
@@ -278,61 +288,146 @@ def render_history_view():
                         st.dataframe(df_hist_visual, use_container_width=True)
 
 def render_close_period_button(p: dict):
-    """Renderiza la sección de cierre de período en el sidebar."""
+    """Renderiza la sección de cierre de período en el sidebar, incluyendo
+    el panel de resolución de deudas a crédito con soporte para 'Proveedor Desaparecido'."""
     st.sidebar.markdown("---")
     st.sidebar.subheader("📦 Cierre de Período")
-    
-    # Importación tardía intencional para evitar circularidad: daily_sales ← history ← sheets
+
+    # Importación tardía intencional para evitar circularidad
     from modules.daily_sales import get_monthly_sales_total
     total_diarias = get_monthly_sales_total(p)
-    
+
     next_month = p["mes"] + 1
     next_year = p["ano"]
     if next_month > 12:
         next_month = 1
         next_year += 1
-        
+
     with st.sidebar.expander("🔐 Cerrar Mes Actual", expanded=False):
         if total_diarias > 0:
             st.markdown(
                 f"""
                 <div style="background-color: rgba(9, 171, 59, 0.1); padding: 10px; border-radius: 5px; border-left: 3px solid #09AB3B; margin-bottom: 10px;">
                     💡 Tienes <b>{format_currency(total_diarias)}</b> acumulados en Caja Diaria.<br><br>
-                    Al cerrar, este monto se guardará como el total real facturado de este mes y se pre-llenará automáticamente como 'Ventas Mes Anterior' para {get_month_name(next_month)}.
+                    Al cerrar, este monto se guardará como el total real facturado de este mes y se pre-llenará
+                    automáticamente como 'Ventas Mes Anterior' para {get_month_name(next_month)}.
                 </div>
                 """,
                 unsafe_allow_html=True
             )
         else:
             st.write("El cierre archivará las ventas, gastos y compras registradas para este período en el historial multi-período.")
-            
+
+        # ─── Panel de Resolución de Deudas a Crédito ───────────────────────────
+        # Calcular qué créditos heredarán al siguiente período
+        herencia = resolver_deudas_para_herencia(p["compras"], p["mes"], p["ano"])
+        deudas_al_mes_sig = herencia["deudas_heredadas"]   # Vencen en Mes+1
+        deudas_a_futuro   = herencia["deudas_futuras"]      # Vencen en Mes+2+
+
+        # Además, las deudas_futuras del período actual que ahora vencen en Mes+1
+        # (se activan desde la cola de deudas_futuras del período actual)
+        deudas_futuras_activadas = [
+            d for d in p.get("deudas_futuras", [])
+            if d.get("mes_vencimiento") == next_month and d.get("ano_vencimiento") == next_year
+        ]
+        deudas_futuras_siguientes = [
+            d for d in p.get("deudas_futuras", [])
+            if not (d.get("mes_vencimiento") == next_month and d.get("ano_vencimiento") == next_year)
+        ]
+
+        # Todas las deudas que vencen en el mes siguiente
+        todas_deudas_mes_sig = deudas_al_mes_sig + deudas_futuras_activadas
+
+        ids_postergadas = set()
+
+        if todas_deudas_mes_sig:
+            st.markdown("---")
+            st.markdown(
+                f"**📋 Compromisos que vencen en {get_month_name(next_month)} {next_year}:**"
+            )
+            st.caption(
+                "Todas están marcadas para heredarse como deudas activas del próximo mes. "
+                "Si un proveedor no se presentó a cobrar, **desmárcalo** para postergarlo un mes más."
+            )
+
+            for deuda in todas_deudas_mes_sig:
+                deuda_id = deuda.get("id", deuda.get("proveedor", ""))
+                veces = deuda.get("veces_postergada", 0)
+                label_post = f" (postergada {veces}x)" if veces > 0 else ""
+                pagar = st.checkbox(
+                    f"{deuda['proveedor']} — {format_currency(deuda['monto'])} "
+                    f"({deuda.get('modalidad_original', deuda.get('modalidad', '?'))}){label_post}",
+                    value=True,
+                    key=f"pagar_{deuda_id}"
+                )
+                if not pagar:
+                    ids_postergadas.add(deuda_id)
+
+            if ids_postergadas:
+                st.warning(
+                    f"⚠️ {len(ids_postergadas)} deuda(s) marcadas como 'Proveedor Desaparecido' "
+                    f"se postergarán a {get_month_name(next_month + 1 if next_month < 12 else 1)}."
+                )
+
+        if deudas_a_futuro or deudas_futuras_siguientes:
+            total_cola = sum(d["monto"] for d in deudas_a_futuro) + \
+                         sum(d["monto"] for d in deudas_futuras_siguientes)
+            st.info(
+                f"📅 {format_currency(total_cola)} en créditos vencen en Mes+2 o después "
+                f"y se transferirán automáticamente a la cola de deudas futuras de {get_month_name(next_month)}."
+            )
+        # ───────────────────────────────────────────────────────────────────────
+
+        st.markdown("---")
         st.warning("⚠️ Esta acción no se puede deshacer.")
-        
         confirmado = st.checkbox("Confirmar cierre de período", value=False)
-        
+
         if st.button("📦 Cerrar y Archivar Período", type="primary", disabled=not confirmado, use_container_width=True):
-            # FIX BUG-01: Una sola asignación cláramente intencional antes de archivar.
-            # Si hay ventas diarias registradas, usarlas como el total real del mes que se cierra.
-            # Este mismo valor se heredará como 'Ventas Mes Anterior' en el nuevo período.
+            # Asignar ventas reales si hay caja diaria registrada
             if total_diarias > 0:
                 p["ventas"] = total_diarias
-            # Si NO hay ventas diarias, se archiva con el valor manual del sidebar (sin cambios).
-                
+
+            # Guardar el período cerrado en el historial
             save_period(p)
-            
-            # Preparar el nuevo período limpio.
-            # p["ventas"] ya tiene el valor correcto para heredar al nuevo mes (lo estableció la línea anterior).
+
+            # ── Construir las deudas del nuevo período ──────────────────────
+            nuevas_deudas_heredadas = []
+            nuevas_deudas_futuras   = list(deudas_a_futuro) + list(deudas_futuras_siguientes)
+
+            for deuda in todas_deudas_mes_sig:
+                deuda_id = deuda.get("id", deuda.get("proveedor", ""))
+                if deuda_id in ids_postergadas:
+                    # Proveedor desaparecido: postergar un mes más
+                    deuda_postergada = deuda.copy()
+                    deuda_postergada["postergada"] = True
+                    deuda_postergada["veces_postergada"] = deuda.get("veces_postergada", 0) + 1
+                    # Recalcular el mes de vencimiento sumando 1 mes
+                    mes_nuevo = next_month + 1
+                    ano_nuevo = next_year
+                    if mes_nuevo > 12:
+                        mes_nuevo = 1
+                        ano_nuevo += 1
+                    deuda_postergada["mes_vencimiento"] = mes_nuevo
+                    deuda_postergada["ano_vencimiento"] = ano_nuevo
+                    # Si el nuevo vencimiento es el siguiente del próximo (Mes+2), va a la cola
+                    nuevas_deudas_futuras.append(deuda_postergada)
+                else:
+                    # Se hereda normalmente como deuda activa del mes siguiente
+                    nuevas_deudas_heredadas.append(deuda)
+            # ──────────────────────────────────────────────────────────────────
+
+            # Preparar el nuevo período limpio
             p["mes"] = next_month
             p["ano"] = next_year
             p["compras"] = []
             p["ventas_diarias"] = []
-            # NOTA: p["ventas"] NO se toca aquí — hereda correctamente del mes cerrado.
-                
-            # Guardar silenciosamente el nuevo estado limpio de período actual
+            p["deudas_heredadas"] = nuevas_deudas_heredadas
+            p["deudas_futuras"]   = nuevas_deudas_futuras
+            # NOTA: p["ventas"] NO se toca — hereda correctamente del mes cerrado.
+
             save_current_period(p)
-            
+
             if is_sheets_active():
-                # Forzar recarga completa en la siguiente ejecución para actualizar historial
                 if "periodo_actual_sheets" in st.session_state:
                     del st.session_state.periodo_actual_sheets
                 if "historial_sheets" in st.session_state:
@@ -343,7 +438,7 @@ def render_close_period_button(p: dict):
                     sync_all_sales_to_sheets([], p, "Activo")
                 except Exception as e:
                     st.sidebar.warning(f"⚠️ Período cerrado localmente, pero hubo un error al sincronizar con Google Sheets: {str(e)}")
-            
+
             st.toast(f"¡Período cerrado con éxito! Iniciando período {get_month_name(next_month)} {next_year}.", icon="📦")
             st.balloons()
             st.rerun()
