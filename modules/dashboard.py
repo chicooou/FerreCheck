@@ -7,7 +7,7 @@ v2: Incorpora desglose de Utilidad Real vs. Compromisos Futuros con fechas de ve
 
 import streamlit as st
 import textwrap
-from config import format_currency, ESTRATEGIAS, MESES, get_month_name
+from config import format_currency, ESTRATEGIAS, MESES, get_month_name, format_currency_clean
 from modules.engine import obtener_estado_semaforo
 
 
@@ -45,73 +45,38 @@ def render_dashboard(p: dict, calc_results: dict):
         unsafe_allow_html=True
     )
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.markdown(
-            render_kpi_card(
-                "Ventas",
-                format_currency(p["ventas"]),
-                "💵",
-                "Ventas del mes inmediato anterior."
-            ),
-            unsafe_allow_html=True
-        )
-
-    with col2:
-        st.markdown(
-            render_kpi_card(
-                "Gastos Fijos",
-                format_currency(calc_results["gastos_totales"]),
-                "📋",
-                "Suma de Planilla, Renta, Luz y Otros gastos recurrentes."
-            ),
-            unsafe_allow_html=True
-        )
-
-    with col3:
-        limite_texto = format_currency(calc_results["limite_real"])
-        if calc_results["fue_ajustado"]:
-            limite_texto += " ⚠️"
-        st.markdown(
-            render_kpi_card(
-                "Límite de Compra",
-                limite_texto,
-                "🎯",
-                "Presupuesto máximo de compras asignado al mes actual."
-            ),
-            unsafe_allow_html=True
-        )
-
-    with col4:
-        util = calc_results["utilidad_real"]
-        icono_util = "📈" if util >= 0 else "📉"
-        st.markdown(
-            render_kpi_card(
-                "Utilidad Real del Mes",
-                format_currency(util),
-                icono_util,
-                "Ventas menos Gastos Fijos, compras al Contado, créditos vencidos este mes y deudas heredadas. "
-                "Las compras a crédito con vencimiento futuro NO se descuentan aquí."
-            ),
-            unsafe_allow_html=True
-        )
-
-    st.write("")
+    limite_texto = format_currency_clean(calc_results["limite_real"])
+    if calc_results["fue_ajustado"]:
+        limite_texto += " ⚠️"
+        
+    util = calc_results["utilidad_real"]
+    icono_util = "📈" if util >= 0 else "📉"
+    
+    st.markdown(
+        clean_html(f"""
+        <div class="kpis-grid">
+            {render_kpi_card("Ventas", format_currency_clean(p["ventas"]), "💵", "Ventas del mes inmediato anterior.")}
+            {render_kpi_card("Gastos Fijos", format_currency_clean(calc_results["gastos_totales"]), "📋", "Suma de Planilla, Renta, Luz y Otros gastos recurrentes.")}
+            {render_kpi_card("Límite de Compra", limite_texto, "🎯", "Presupuesto máximo de compras asignado al mes actual.")}
+            {render_kpi_card("Utilidad Real del Mes", format_currency_clean(util), icono_util, "Ventas menos Gastos Fijos, compras al Contado, créditos vencidos este mes y deudas heredadas. Las compras a crédito con vencimiento futuro NO se descuentan aquí.")}
+        </div>
+        """),
+        unsafe_allow_html=True
+    )
 
     # 2. Alertas Inteligentes de Seguridad Financiera (Ancho Completo)
     if calc_results["fue_ajustado"]:
         if calc_results["saldo_disponible"] <= 0:
             st.error(
                 f"🚨 **¡Bloqueo de Emergencia por Liquidez!** "
-                f"El saldo disponible tras gastos fijos es de **{format_currency(calc_results['saldo_disponible'])}**. "
+                f"El saldo disponible tras gastos fijos es de **{format_currency_clean(calc_results['saldo_disponible'])}**. "
                 f"No puedes registrar compras para este período ya que no hay suficiente margen para cubrir tus costos fijos esenciales."
             )
         else:
             st.warning(
-                f"⚠️ **Ajuste de Seguridad Activo:** El límite de compra sugerido original de **{format_currency(calc_results['limite_sugerido'])}** "
+                f"⚠️ **Ajuste de Seguridad Activo:** El límite de compra sugerido original de **{format_currency_clean(calc_results['limite_sugerido'])}** "
                 f"ha sido reajustado al 90% del saldo real disponible para garantizar la cobertura de tus gastos fijos. "
-                f"Límite Seguro de Compra: **{format_currency(calc_results['limite_real'])}**."
+                f"Límite Seguro de Compra: **{format_currency_clean(calc_results['limite_real'])}**."
             )
 
     # 3. Diseño Grid: Dos Columnas Principales
@@ -128,9 +93,9 @@ def render_dashboard(p: dict, calc_results: dict):
         nombre_mes_actual = f"{get_month_name(p['mes'])} {p['ano']}"
         libre_actual = limite_real - total_compras
         if libre_actual >= 0:
-            texto_libre_actual_simple = f"{format_currency(libre_actual)} libre"
+            texto_libre_actual_simple = f"{format_currency_clean(libre_actual)} libre"
         else:
-            texto_libre_actual_simple = f"{format_currency(abs(libre_actual))} excedido ⚠️"
+            texto_libre_actual_simple = f"{format_currency_clean(abs(libre_actual))} excedido ⚠️"
 
         # Barra 2: Pagos del Mes Actual (Contado + Deudas Heredadas)
         util_data = calc_results.get("util_modalidad", {})
@@ -144,9 +109,9 @@ def render_dashboard(p: dict, calc_results: dict):
         semaforo_pagos = obtener_estado_semaforo(consumo_pagos_pct)
         libre_pagos = limite_real - total_pagos
         if libre_pagos >= 0:
-            texto_libre_pagos_simple = f"{format_currency(libre_pagos)} libre"
+            texto_libre_pagos_simple = f"{format_currency_clean(libre_pagos)} libre"
         else:
-            texto_libre_pagos_simple = f"{format_currency(abs(libre_pagos))} excedido ⚠️"
+            texto_libre_pagos_simple = f"{format_currency_clean(abs(libre_pagos))} excedido ⚠️"
 
         # Card 1: Operación en Curso (Hoy)
         st.markdown(
@@ -166,7 +131,7 @@ def render_dashboard(p: dict, calc_results: dict):
                         <div style="background-color: {semaforo['hex']}; width: {min(consumo_pct, 100)}%; height: 100%; border-radius: 6px;"></div>
                     </div>
                     <div style="display:flex; justify-content:space-between; font-size:11px; color:#8C9CAE;">
-                        <span>{format_currency(total_compras)} de {format_currency(limite_real)}</span>
+                        <span>{format_currency_clean(total_compras)} de {format_currency_clean(limite_real)}</span>
                         <span><b>{texto_libre_actual_simple}</b></span>
                     </div>
                 </div>
@@ -183,7 +148,7 @@ def render_dashboard(p: dict, calc_results: dict):
                         <div style="background-color: {semaforo_pagos['hex']}; width: {min(consumo_pagos_pct, 100)}%; height: 100%; border-radius: 6px;"></div>
                     </div>
                     <div style="display:flex; justify-content:space-between; font-size:11px; color:#8C9CAE;">
-                        <span>{format_currency(total_pagos)} de {format_currency(limite_real)}</span>
+                        <span>{format_currency_clean(total_pagos)} de {format_currency_clean(limite_real)}</span>
                         <span><b>{texto_libre_pagos_simple}</b></span>
                     </div>
                 </div>
@@ -220,7 +185,7 @@ def render_dashboard(p: dict, calc_results: dict):
                 st.markdown(
                     render_kpi_card(
                         "Compras al Contado",
-                        format_currency(util_data.get("egreso_contado", 0)),
+                        format_currency_clean(util_data.get("egreso_contado", 0)),
                         "💵",
                         "Efectivo que ya salió de la cuenta bancaria este mes."
                     ),
@@ -230,7 +195,7 @@ def render_dashboard(p: dict, calc_results: dict):
                 st.markdown(
                     render_kpi_card(
                         "Créditos a Vencer",
-                        format_currency(util_data.get("egreso_credito_mes_actual", 0)),
+                        format_currency_clean(util_data.get("egreso_credito_mes_actual", 0)),
                         "📅",
                         "Compras a crédito cuya fecha de pago cae dentro de este mismo mes."
                     ),
@@ -242,7 +207,7 @@ def render_dashboard(p: dict, calc_results: dict):
                 st.markdown(
                     render_kpi_card(
                         "Deudas Heredadas",
-                        format_currency(util_data.get("egreso_deudas_heredadas", 0)),
+                        format_currency_clean(util_data.get("egreso_deudas_heredadas", 0)),
                         "📥",
                         "Créditos de meses anteriores que vencen en este período."
                     ),
@@ -253,7 +218,7 @@ def render_dashboard(p: dict, calc_results: dict):
                 st.markdown(
                     render_kpi_card(
                         "Total Egreso Real",
-                        format_currency(egreso_real),
+                        format_currency_clean(egreso_real),
                         "🏦",
                         "Suma total de todos los egresos que impactan la utilidad de este mes."
                     ),
@@ -264,15 +229,24 @@ def render_dashboard(p: dict, calc_results: dict):
             deudas_heredadas = util_data.get("deudas_heredadas", [])
             if deudas_heredadas:
                 with st.expander("📥 Ver detalle de Deudas Heredadas", expanded=False):
+                    html_deudas = '<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 5px;">'
                     for d in deudas_heredadas:
                         from config import get_month_name as gmn
                         origen = f"{gmn(d.get('origen_mes', 0))} {d.get('origen_ano', '')}"
                         veces = d.get("veces_postergada", 0)
-                        postponed_label = f" ⚠️ Postergada {veces}x" if veces > 0 else ""
-                        st.markdown(
-                            f"• **{d.get('proveedor', '?')}** — {format_currency(d.get('monto', 0))} "
-                            f"({d.get('modalidad_original', '?')} de {origen}){postponed_label}"
-                        )
+                        postponed_label = f" <span style='color:#FFC107;'>⚠️ Postergada {veces}x</span>" if veces > 0 else ""
+                        monto_txt = format_currency_clean(d.get("monto", 0))
+                        html_deudas += f"""
+                        <div class="tx-item">
+                            <div class="tx-info">
+                                <span class="tx-name">{d.get('proveedor', '?')}{postponed_label}</span>
+                                <span class="tx-meta">{d.get('modalidad_original', '?')} de {origen}</span>
+                            </div>
+                            <span class="tx-amount">{monto_txt}</span>
+                        </div>
+                        """
+                    html_deudas += '</div>'
+                    st.markdown(clean_html(html_deudas), unsafe_allow_html=True)
 
             # Expander explicativo de fórmula
             with st.expander("💡 ¿Cómo se calcula la Utilidad Real?", expanded=False):
@@ -280,13 +254,13 @@ def render_dashboard(p: dict, calc_results: dict):
                 Para darte un número exacto y real, solo restamos el dinero que **efectivamente salió de tu bolsa este mes**.
                 
                 **Fórmula:**
-                * **Ventas:** `+ {format_currency(p['ventas'])}`
-                * **Gastos Fijos:** `- {format_currency(calc_results['gastos_totales'])}`
-                * **Compras al Contado:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_contado', 0))}`
-                * **Créditos a Vencer este Mes:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_credito_mes_actual', 0))}`
-                * **Deudas Heredadas:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_deudas_heredadas', 0))}`
+                * **Ventas:** `+ {format_currency_clean(p['ventas'])}`
+                * **Gastos Fijos:** `- {format_currency_clean(calc_results['gastos_totales'])}`
+                * **Compras al Contado:** `- {format_currency_clean(calc_results.get('util_modalidad', {}).get('egreso_contado', 0))}`
+                * **Créditos a Vencer este Mes:** `- {format_currency_clean(calc_results.get('util_modalidad', {}).get('egreso_credito_mes_actual', 0))}`
+                * **Deudas Heredadas:** `- {format_currency_clean(calc_results.get('util_modalidad', {}).get('egreso_deudas_heredadas', 0))}`
                 ---
-                * **= Utilidad Real:** `{format_currency(util)}`
+                * **= Utilidad Real:** `{format_currency_clean(util)}`
                 
                 *(Las compras a crédito a 30, 45 o 60 días no se restan aquí porque las pagarás en meses futuros).*
                 """)
@@ -307,7 +281,7 @@ def render_dashboard(p: dict, calc_results: dict):
                     st.markdown(
                         render_kpi_card(
                             f"Vencen en {get_month_name(mes_sig)}",
-                            format_currency(util_data.get("compromisos_mes_siguiente", 0)),
+                            format_currency_clean(util_data.get("compromisos_mes_siguiente", 0)),
                             "🗓️",
                             f"Créditos cuya fecha de pago cae en el mes de {get_month_name(mes_sig)}."
                         ),
@@ -317,7 +291,7 @@ def render_dashboard(p: dict, calc_results: dict):
                     st.markdown(
                         render_kpi_card(
                             "Vencen en Mes+2 o más",
-                            format_currency(util_data.get("compromisos_mes_2_plus", 0)),
+                            format_currency_clean(util_data.get("compromisos_mes_2_plus", 0)),
                             "🗓️",
                             "Créditos con vencimiento en dos o más meses."
                         ),
@@ -328,14 +302,22 @@ def render_dashboard(p: dict, calc_results: dict):
                 detalle = util_data.get("detalle_compromisos_futuros", [])
                 if detalle:
                     with st.expander("📋 Ver detalle de compromisos futuros", expanded=False):
+                        html_comp = '<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 5px;">'
                         for comp in sorted(detalle, key=lambda x: (x["ano_vencimiento"], x["mes_vencimiento"])):
                             mes_v = get_month_name(comp["mes_vencimiento"])
                             ano_v = comp["ano_vencimiento"]
-                            st.markdown(
-                                f"• **{comp['proveedor']}** — {format_currency(comp['monto'])} "
-                                f"({comp['modalidad']}, compra {comp['fecha_compra']}) → "
-                                f"**Vence: {mes_v} {ano_v}**"
-                            )
+                            monto_txt = format_currency_clean(comp["monto"])
+                            html_comp += f"""
+                            <div class="tx-item">
+                                <div class="tx-info">
+                                    <span class="tx-name">{comp['proveedor']}</span>
+                                    <span class="tx-meta">{comp['modalidad']} (compra {comp['fecha_compra']}) → <b>Vence: {mes_v} {ano_v}</b></span>
+                                </div>
+                                <span class="tx-amount">{monto_txt}</span>
+                            </div>
+                            """
+                        html_comp += '</div>'
+                        st.markdown(clean_html(html_comp), unsafe_allow_html=True)
             else:
                 st.info("✅ No hay compromisos de crédito pendientes para meses futuros en este período.")
 
@@ -352,11 +334,11 @@ def render_barras_predictivas(calc_results: dict):
     # Nota informativa corta sobre cómo se calculó el límite
     if metodo == "caja_diaria":
         caption_text = (
-            f"Límites basados en extrapolación de Caja Diaria ({format_currency(ventas_proy)} est. ventas)."
+            f"Límites basados en extrapolación de Caja Diaria ({format_currency_clean(ventas_proy)} est. ventas)."
         )
     else:
         caption_text = (
-            f"Límites basados en Ventas del sidebar ({format_currency(ventas_proy)} base)."
+            f"Límites basados en Ventas del sidebar ({format_currency_clean(ventas_proy)} base)."
         )
         
     html = f"""
@@ -375,9 +357,9 @@ def render_barras_predictivas(calc_results: dict):
         # Calcular saldo libre proyectado
         libre = data["limite_proyectado"] - data["comprometido"]
         if libre >= 0:
-            texto_libre = f"{format_currency(libre)} libre"
+            texto_libre = f"{format_currency_clean(libre)} libre"
         else:
-            texto_libre = f"{format_currency(abs(libre))} excedido ⚠️"
+            texto_libre = f"{format_currency_clean(abs(libre))} excedido ⚠️"
             
         details_html = ""
         # Expander HTML con detalle de proveedores (usando <details>)
@@ -387,10 +369,19 @@ def render_barras_predictivas(calc_results: dict):
                 <summary style="cursor: pointer; font-size: 12px; color: #8C9CAE; font-weight: 500; outline: none; user-select: none;">
                     📋 Ver detalle de compromisos para {data['nombre']}
                 </summary>
-                <div style="padding: 8px 12px; margin-top: 5px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 12px; color: #E2E8F0;">
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-left: 4px;">
             """
             for d in data["detalle"]:
-                details_html += f"<div style='margin-bottom: 4px;'>• <b>{d['proveedor']}</b> — {format_currency(d['monto'])} ({d.get('modalidad', '?')})</div>"
+                monto_txt = format_currency_clean(d["monto"])
+                details_html += f"""
+                <div class="tx-item" style="margin-bottom: 0;">
+                    <div class="tx-info">
+                        <span class="tx-name">{d['proveedor']}</span>
+                        <span class="tx-meta">{d.get('modalidad', '?')}</span>
+                    </div>
+                    <span class="tx-amount">{monto_txt}</span>
+                </div>
+                """
             details_html += """
                 </div>
             </details>
@@ -406,7 +397,7 @@ def render_barras_predictivas(calc_results: dict):
                 <div style="background-color: {semaforo['hex']}; width: {min(pct, 100)}%; height: 100%; border-radius: 6px;"></div>
             </div>
             <div style="display:flex; justify-content:space-between; font-size:11px; color:#8C9CAE; margin-bottom: 4px;">
-                <span>{format_currency(data['comprometido'])} de {format_currency(data['limite_proyectado'])}</span>
+                <span>{format_currency_clean(data['comprometido'])} de {format_currency_clean(data['limite_proyectado'])}</span>
                 <span><b>{texto_libre}</b></span>
             </div>
             {details_html}

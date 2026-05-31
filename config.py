@@ -57,3 +57,10 @@ def get_month_name(month_num: int) -> str:
 def format_currency(value: float) -> str:
     """Formatea un valor numérico como moneda (ej: Q 150,000.00)."""
     return f"{MONEDA_SIMBOLO} {value:,.2f}"
+
+def format_currency_clean(value: float) -> str:
+    """Formatea un valor numérico como moneda, ocultando decimales si son .00 (ej: Q 150,000)."""
+    if value == int(value):
+        return f"{MONEDA_SIMBOLO} {int(value):,}"
+    return f"{MONEDA_SIMBOLO} {value:,.2f}"
+

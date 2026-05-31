@@ -177,3 +177,62 @@ html, body, [class*="css"], .stText, .stMarkdown {
     border-color: rgba(255, 255, 255, 0.15) !important;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
 }
+
+/* Rejilla de KPIs Responsiva */
+.kpis-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+    .kpis-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 10px !important;
+    }
+    /* Reducir padding de kpis en mobile para optimizar espacio */
+    .kpi-container {
+        padding: 12px 14px !important;
+    }
+    .kpi-value {
+        font-size: 20px !important;
+    }
+}
+
+/* Tarjeta de transacción bancaria para detalles de proveedores */
+.tx-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-bottom: 6px;
+    transition: background 0.2s ease;
+}
+.tx-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+.tx-info {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+}
+.tx-name {
+    font-weight: 600;
+    color: #FFFFFF;
+    font-size: 13px;
+}
+.tx-meta {
+    font-size: 11px;
+    color: #8C9CAE;
+}
+.tx-amount {
+    font-weight: 700;
+    color: #FFFFFF;
+    font-size: 13px;
+    text-align: right;
+}
+
