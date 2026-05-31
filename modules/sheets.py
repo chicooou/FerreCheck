@@ -27,19 +27,23 @@ def get_google_creds():
     Intenta obtener las credenciales de la cuenta de servicio de Google Cloud.
     Soporta TOML estructurado, cadenas JSON crudas o strings multi-línea.
     """
-    if "google" in st.secrets and "service_account" in st.secrets["google"]:
-        secret_val = st.secrets["google"]["service_account"]
-        
-        if isinstance(secret_val, str):
+    try:
+        if "google" in st.secrets and "service_account" in st.secrets["google"]:
+            secret_val = st.secrets["google"]["service_account"]
+            
+            if isinstance(secret_val, str):
+                try:
+                    return json.loads(secret_val)
+                except Exception:
+                    pass
+                    
             try:
-                return json.loads(secret_val)
+                return dict(secret_val)
             except Exception:
                 pass
-                
-        try:
-            return dict(secret_val)
-        except Exception:
-            pass
+    except Exception:
+        # Silenciar StreamlitSecretNotFoundError si no existe el archivo secrets.toml
+        pass
             
     local_creds_path = os.path.join("secrets", "google_sheets_creds.json")
     if os.path.exists(local_creds_path):
