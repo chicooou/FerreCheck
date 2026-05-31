@@ -6,6 +6,7 @@ v2: Incorpora desglose de Utilidad Real vs. Compromisos Futuros con fechas de ve
 """
 
 import streamlit as st
+import textwrap
 from config import format_currency, ESTRATEGIAS, MESES, get_month_name
 from modules.engine import obtener_estado_semaforo
 
@@ -29,12 +30,12 @@ def render_dashboard(p: dict, calc_results: dict):
     # 1. Cabecera con Badge de Estrategia Activa
     est_info = ESTRATEGIAS.get(p["estrategia"], ESTRATEGIAS["balance"])
     st.markdown(
-        f"""
+        textwrap.dedent(f"""
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
             <h3 style="margin: 0; font-size: 20px; font-weight: 600; color: #FFFFFF;">📊 Estado de Flujo de Caja</h3>
             <span class="strategy-badge strategy-badge-{p['estrategia']}">{est_info['nombre']}</span>
         </div>
-        """,
+        """),
         unsafe_allow_html=True
     )
 
@@ -155,7 +156,7 @@ def render_dashboard(p: dict, calc_results: dict):
 
         # Card 1: Operación en Curso (Hoy)
         st.markdown(
-            f"""
+            textwrap.dedent(f"""
             <div class="dashboard-card">
                 <h4 style="margin-top:0; margin-bottom:15px; color:#FFFFFF; font-size:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
                     🎯 Operación en Curso ({nombre_mes_actual})
@@ -188,7 +189,7 @@ def render_dashboard(p: dict, calc_results: dict):
                     </div>
                 </div>
             </div>
-            """,
+            """),
             unsafe_allow_html=True
         )
 
@@ -422,4 +423,4 @@ def render_barras_predictivas(calc_results: dict):
             """
             
     html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
