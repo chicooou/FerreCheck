@@ -13,7 +13,8 @@ from modules.engine import obtener_estado_semaforo
 
 def clean_html(html_str: str) -> str:
     """Elimina toda la de indentación de cada línea de la cadena HTML para evitar bloques de código Markdown."""
-    return "\n".join(line.strip() for line in html_str.splitlines())
+    lines = [line.strip() for line in html_str.strip().splitlines()]
+    return "\n".join(lines)
 
 
 def render_kpi_card(titulo: str, valor: str, icono: str, ayuda: str = "") -> str:
