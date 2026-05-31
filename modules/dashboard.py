@@ -50,9 +50,6 @@ def render_dashboard(p: dict, calc_results: dict):
     if calc_results["fue_ajustado"]:
         limite_texto += " ⚠️"
         
-    util = calc_results["utilidad_real"]
-    icono_util = "📈" if util >= 0 else "📉"
-    
     # Calcular ventas acumuladas de Caja Diaria y porcentaje de avance
     ventas_acumuladas = sum(v["monto"] for v in p.get("ventas_diarias", []))
     ventas_proyeccion = p.get("ventas", 0.0)
@@ -68,13 +65,26 @@ def render_dashboard(p: dict, calc_results: dict):
     </div>
     """
     
+    # Calcular utilidad real acumulada a la fecha y utilidad proyectada al cierre
+    utilidad_proyectada = calc_results["utilidad_real"]
+    utilidad_real_acumulada = ventas_acumuladas - calc_results["gastos_totales"] - calc_results["util_modalidad"]["egreso_real_mes"]
+    icono_util = "📈" if utilidad_real_acumulada >= 0 else "📉"
+    
+    subcontenido_utilidad = f"""
+    <div class="kpi-subtext">
+        <span>Proyección Cierre:</span>
+        <span style="font-weight: 600; color: #FFFFFF;">{format_currency_clean(utilidad_proyectada)}</span>
+    </div>
+    <div style="height: 4px; margin-top: 4px;"></div>
+    """
+    
     st.markdown(
         clean_html(f"""
         <div class="kpis-grid">
             {render_kpi_card("Venta Base (Proyección)", format_currency_clean(p["ventas"]), "💵", "Ventas del mes inmediato anterior usadas como proyección base para límites.", subcontenido_ventas)}
             {render_kpi_card("Gastos Fijos", format_currency_clean(calc_results["gastos_totales"]), "📋", "Suma de Planilla, Renta, Luz y Otros gastos recurrentes.")}
             {render_kpi_card("Límite de Compra", limite_texto, "🎯", "Presupuesto máximo de compras asignado al mes actual.")}
-            {render_kpi_card("Utilidad Real del Mes", format_currency_clean(util), icono_util, "Ventas menos Gastos Fijos, compras al Contado, créditos vencidos este mes y deudas heredadas. Las compras a crédito con vencimiento futuro NO se descuentan aquí.")}
+            {render_kpi_card("Utilidad Real del Mes", format_currency_clean(utilidad_real_acumulada), icono_util, "Utilidad real acumulada a la fecha (Ventas de Caja Diaria menos Gastos Fijos y egresos reales de compras y deudas de este mes).", subcontenido_utilidad)}
         </div>
         """),
         unsafe_allow_html=True
