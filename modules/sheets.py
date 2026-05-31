@@ -13,6 +13,13 @@ import json
 import os
 import datetime
 
+def safe_int(value):
+    """Convierte a int con seguridad para celdas vacías o tipos inesperados."""
+    try:
+        return int(float(value))
+    except (ValueError, TypeError):
+        return 0
+
 SPREADSHEET_NAME = "FerreCheck"
 
 def get_google_creds():
@@ -112,6 +119,17 @@ def get_cached_sheets(_client):
             ws_compras.add_cols(1)
             ws_compras.update_cell(1, len(headers) + 1, "modalidad")
             
+    # Verificar y agregar columnas de deudas en Periodos
+    if ws_periodos:
+        headers_p = ws_periodos.row_values(1)
+        if "deudas_heredadas" not in headers_p:
+            try:
+                ws_periodos.add_cols(2)
+            except gspread.exceptions.APIError:
+                pass
+            ws_periodos.update_cell(1, len(headers_p) + 1, "deudas_heredadas")
+            ws_periodos.update_cell(1, len(headers_p) + 2, "deudas_futuras")
+            
     try:
         ws_ventas = sh.worksheet("VentasDiarias")
     except gspread.WorksheetNotFound:
@@ -150,11 +168,13 @@ def sync_period_to_sheets(p: dict, estado: str = "Activo"):
             float(p["gastos"]["luz"]),
             float(p["gastos"]["otros"]),
             p["estrategia"],
-            estado
+            estado,
+            json.dumps(p.get("deudas_heredadas", [])),
+            json.dumps(p.get("deudas_futuras", []))
         ]
         
         if cell:
-            ws_periodos.update(f"A{cell.row}:J{cell.row}", [row_data])
+            ws_periodos.update(f"A{cell.row}:L{cell.row}", [row_data])
         else:
             ws_periodos.append_row(row_data)
             
@@ -271,6 +291,14 @@ def safe_int(val):
     except (ValueError, TypeError):
         return 0
 
+def safe_json_list(val: str) -> list:
+    if not val:
+        return []
+    try:
+        return json.loads(val)
+    except Exception:
+        return []
+
 def load_all_data_from_sheets() -> tuple:
     """Carga todos los datos de Google Sheets reconstruyendo el estado con modalidades de pago."""
     client = get_gspread_client()
@@ -335,7 +363,9 @@ def load_all_data_from_sheets() -> tuple:
                 },
                 "estrategia": str(r.get("estrategia", "balance")),
                 "compras": compras_por_periodo.get(period_key, []),
-                "ventas_diarias": ventas_por_periodo.get(period_key, [])
+                "ventas_diarias": ventas_por_periodo.get(period_key, []),
+                "deudas_heredadas": safe_json_list(r.get("deudas_heredadas", "[]")),
+                "deudas_futuras": safe_json_list(r.get("deudas_futuras", "[]"))
             }
             
             if r.get("estado") == "Activo":
@@ -350,7 +380,9 @@ def load_all_data_from_sheets() -> tuple:
                     "gastos": p_data["gastos"],
                     "estrategia": p_data["estrategia"],
                     "compras": p_data["compras"],
-                    "ventas_diarias": p_data["ventas_diarias"]
+                    "ventas_diarias": p_data["ventas_diarias"],
+                    "deudas_heredadas": p_data["deudas_heredadas"],
+                    "deudas_futuras": p_data["deudas_futuras"]
                 }
                 
         if not active_period:
@@ -367,7 +399,9 @@ def load_all_data_from_sheets() -> tuple:
                 },
                 "estrategia": "balance",
                 "compras": [],
-                "ventas_diarias": []
+                "ventas_diarias": [],
+                "deudas_heredadas": [],
+                "deudas_futuras": []
             }
             sync_period_to_sheets(active_period, "Activo")
             
