@@ -120,7 +120,7 @@ def calcular_utilidad_por_modalidad(
     - Deudas Heredadas → Créditos de meses anteriores que vencen ESTE mes.
     """
     egreso_contado = 0.0
-    egreso_credito_vencido_hoy = 0.0
+    egreso_credito_mes_actual = 0.0
     compromisos_mes_siguiente = 0.0
     compromisos_mes_2_plus = 0.0
     detalle_compromisos_futuros: List[Dict[str, Any]] = []
@@ -134,8 +134,8 @@ def calcular_utilidad_por_modalidad(
             dist = calcular_distancia_meses(mes_actual, ano_actual, mes_venc, ano_venc)
 
             if dist <= 0:
-                # Venció en este mes o en un mes pasado (ya exigible)
-                egreso_credito_vencido_hoy += c["monto"]
+                # Vence en este mes o en un mes pasado
+                egreso_credito_mes_actual += c["monto"]
             elif dist == 1:
                 compromisos_mes_siguiente += c["monto"]
                 detalle_compromisos_futuros.append({
@@ -162,13 +162,13 @@ def calcular_utilidad_por_modalidad(
     # Deudas heredadas de meses anteriores que vencen este mes
     egreso_deudas_heredadas = sum(d["monto"] for d in deudas_heredadas)
 
-    egreso_real_mes = egreso_contado + egreso_credito_vencido_hoy + egreso_deudas_heredadas
+    egreso_real_mes = egreso_contado + egreso_credito_mes_actual + egreso_deudas_heredadas
     utilidad_real = ventas - gastos_totales - egreso_real_mes
 
     return {
         "utilidad_real": utilidad_real,
         "egreso_contado": egreso_contado,
-        "egreso_credito_vencido": egreso_credito_vencido_hoy,
+        "egreso_credito_mes_actual": egreso_credito_mes_actual,
         "egreso_deudas_heredadas": egreso_deudas_heredadas,
         "egreso_real_mes": egreso_real_mes,
         "compromisos_mes_siguiente": compromisos_mes_siguiente,

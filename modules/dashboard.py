@@ -91,7 +91,7 @@ def render_dashboard(p: dict, calc_results: dict):
         * **Ventas:** `+ {format_currency(p['ventas'])}`
         * **Gastos Fijos:** `- {format_currency(calc_results['gastos_totales'])}`
         * **Compras al Contado:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_contado', 0))}`
-        * **Créditos Vencidos Hoy:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_credito_vencido', 0))}`
+        * **Créditos a Vencer este Mes:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_credito_mes_actual', 0))}`
         * **Deudas Heredadas:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_deudas_heredadas', 0))}`
         ---
         * **= Utilidad Real:** `{format_currency(util)}`
@@ -176,10 +176,10 @@ def render_dashboard(p: dict, calc_results: dict):
     with col_b:
         st.markdown(
             render_kpi_card(
-                "Créditos Vencidos Hoy",
-                format_currency(util_data.get("egreso_credito_vencido", 0)),
+                "Créditos a Vencer este Mes",
+                format_currency(util_data.get("egreso_credito_mes_actual", 0)),
                 "📅",
-                "Compras a crédito cuya fecha de vencimiento cae dentro de este mes."
+                "Compras a crédito cuya fecha de pago cae dentro de este mismo mes."
             ),
             unsafe_allow_html=True
         )
