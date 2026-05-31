@@ -83,6 +83,23 @@ def render_dashboard(p: dict, calc_results: dict):
 
     st.write("")
 
+    with st.expander("💡 ¿Cómo se calcula la Utilidad Real de este mes?", expanded=False):
+        st.markdown(f"""
+        Para darte un número exacto y real, solo restamos el dinero que **efectivamente salió de tu bolsa este mes**.
+        
+        **Fórmula:**
+        * **Ventas:** `+ {format_currency(p['ventas'])}`
+        * **Gastos Fijos:** `- {format_currency(calc_results['gastos_totales'])}`
+        * **Compras al Contado:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_contado', 0))}`
+        * **Créditos Vencidos Hoy:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_credito_vencido', 0))}`
+        * **Deudas Heredadas:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_deudas_heredadas', 0))}`
+        ---
+        * **= Utilidad Real:** `{format_currency(util)}`
+        
+        *(Las compras a crédito a 30, 45 o 60 días no se restan aquí porque las pagarás en meses futuros).*
+        """)
+
+    st.write("")
     # 2. Alertas Inteligentes de Seguridad Financiera
     if calc_results["fue_ajustado"]:
         if calc_results["saldo_disponible"] <= 0:
