@@ -17,11 +17,11 @@ def clean_html(html_str: str) -> str:
     return "\n".join(lines)
 
 
-def render_kpi_card(titulo: str, valor: str, icono: str, ayuda: str = "", subcontenido: str = "") -> str:
+def render_kpi_card(titulo: str, valor: str, icono: str, ayuda: str = "", subcontenido: str = "", extra_class: str = "") -> str:
     """Retorna código HTML para una tarjeta KPI premium."""
     tooltip = f'title="{ayuda}"' if ayuda else ""
     return clean_html(f"""
-    <div class="kpi-container" {tooltip}>
+    <div class="kpi-container {extra_class}" {tooltip}>
         <div class="kpi-title">{icono} {titulo}</div>
         <div class="kpi-value">{valor}</div>
         {subcontenido}
@@ -57,8 +57,8 @@ def render_dashboard(p: dict, calc_results: dict):
     
     subcontenido_ventas = f"""
     <div class="kpi-subtext">
-        <span>Real ({pct_avance:.1f}%):</span>
-        <span class="kpi-subtext-val">{format_currency_clean(ventas_acumuladas)}</span>
+        <span>Base Proyección ({pct_avance:.1f}%):</span>
+        <span style="font-weight: 600; color: #FFFFFF;">{format_currency_clean(ventas_proyeccion)}</span>
     </div>
     <div class="kpi-progress-bar">
         <div class="kpi-progress-fill" style="width: {min(pct_avance, 100.0)}%;"></div>
@@ -69,6 +69,7 @@ def render_dashboard(p: dict, calc_results: dict):
     utilidad_proyectada = calc_results["utilidad_real"]
     utilidad_real_acumulada = ventas_acumuladas - calc_results["gastos_totales"] - calc_results["util_modalidad"]["egreso_real_mes"]
     icono_util = "📈" if utilidad_real_acumulada >= 0 else "📉"
+    clase_util = "kpi-utility-positive" if utilidad_real_acumulada >= 0 else "kpi-utility-negative"
     
     subcontenido_utilidad = f"""
     <div class="kpi-subtext">
@@ -81,10 +82,10 @@ def render_dashboard(p: dict, calc_results: dict):
     st.markdown(
         clean_html(f"""
         <div class="kpis-grid">
-            {render_kpi_card("Venta Base (Proyección)", format_currency_clean(p["ventas"]), "💵", "Ventas del mes inmediato anterior usadas como proyección base para límites.", subcontenido_ventas)}
-            {render_kpi_card("Gastos Fijos", format_currency_clean(calc_results["gastos_totales"]), "📋", "Suma de Planilla, Renta, Luz y Otros gastos recurrentes.")}
-            {render_kpi_card("Límite de Compra", limite_texto, "🎯", "Presupuesto máximo de compras asignado al mes actual.")}
-            {render_kpi_card("Utilidad Real del Mes", format_currency_clean(utilidad_real_acumulada), icono_util, "Utilidad real acumulada a la fecha (Ventas de Caja Diaria menos Gastos Fijos y egresos reales de compras y deudas de este mes).", subcontenido_utilidad)}
+            {render_kpi_card("Ventas del Mes", format_currency_clean(ventas_acumuladas), "💵", "Ventas reales acumuladas en Caja Diaria este mes.", subcontenido_ventas, "kpi-sales")}
+            {render_kpi_card("Gastos Fijos", format_currency_clean(calc_results["gastos_totales"]), "📋", "Suma de Planilla, Renta, Luz y Otros gastos recurrentes.", extra_class="kpi-expenses")}
+            {render_kpi_card("Límite de Compra", limite_texto, "🎯", "Presupuesto máximo de compras asignado al mes actual.", extra_class="kpi-limit")}
+            {render_kpi_card("Utilidad Real del Mes", format_currency_clean(utilidad_real_acumulada), icono_util, "Utilidad real acumulada a la fecha (Ventas de Caja Diaria menos Gastos Fijos y egresos reales de compras y deudas de este mes).", subcontenido_utilidad, clase_util)}
         </div>
         """),
         unsafe_allow_html=True

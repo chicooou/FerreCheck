@@ -259,11 +259,30 @@ html, body, [class*="css"], .stText, .stMarkdown {
     overflow: hidden;
     margin-top: 4px;
 }
+
 .kpi-progress-fill {
     background-color: #09AB3B;
     height: 100%;
     border-radius: 4px;
     transition: width 0.3s ease;
 }
+
+/* Bordes de Acento de Color para Tarjetas KPI */
+.kpi-sales {
+    border-left: 4px solid #09AB3B !important;
+}
+.kpi-expenses {
+    border-left: 4px solid #FF4B4B !important;
+}
+.kpi-limit {
+    border-left: 4px solid #00C0F2 !important;
+}
+.kpi-utility-positive {
+    border-left: 4px solid #09AB3B !important;
+}
+.kpi-utility-negative {
+    border-left: 4px solid #FF4B4B !important;
+}
+
 
 
