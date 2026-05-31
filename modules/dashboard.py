@@ -313,7 +313,8 @@ def render_barras_predictivas(calc_results: dict):
             f"debido a que no hay registros en la Caja Diaria para extrapolar."
         )
         
-    for key in ["mes_1", "mes_2"]:
+    mes_siguiente_nombre = proyeccion["mes_1"]["nombre"]
+    for key in ["mes_1", "mes_2", "mes_3"]:
         data = proyeccion[key]
         semaforo = data["semaforo"]
         pct = data["consumo_pct"]
@@ -327,9 +328,14 @@ def render_barras_predictivas(calc_results: dict):
         
         # Determinar el tipo de compra a crédito recomendada para este vencimiento
         if key == "mes_1":
-            label_tipo = "Margen para Crédito 30 días"
+            label_tipo = f"Pagos Comprometidos de {data['nombre']}"
+            label_ayuda = f"Determina compras al contado en {data['nombre']}"
+        elif key == "mes_2":
+            label_tipo = f"Margen para Crédito 30 días en {mes_siguiente_nombre}"
+            label_ayuda = f"Vence en {data['nombre']}"
         else:
-            label_tipo = "Margen para Crédito 60 días"
+            label_tipo = f"Margen para Crédito 60 días en {mes_siguiente_nombre}"
+            label_ayuda = f"Vence en {data['nombre']}"
         
         # Barra HTML con borde punteado para diferenciarla de la actual
         st.markdown(f"""
@@ -337,7 +343,7 @@ def render_barras_predictivas(calc_results: dict):
              margin-top: 10px; padding: 12px; border-radius: 5px; background-color: rgba(255,255,255,0.02);">
             <div class="progress-header" style="margin-bottom: 8px;">
                 <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">
-                    📅 <b>{label_tipo}</b> (Vence en <b>{data['nombre']}</b>): 
+                    📅 <b>{label_tipo}</b> (<i>{label_ayuda}</i>): 
                     <b>{format_currency(data['comprometido'])}</b> comprometidos 
                     de un límite proyectado de <b>{format_currency(data['limite_proyectado'])}</b>
                     {texto_libre}

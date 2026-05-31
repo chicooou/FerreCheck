@@ -32,9 +32,10 @@ def run_tests():
         ano_actual=2026
     )
     
-    # Check that compromisos_mes_siguiente and compromisos_mes_2 are 0
+    # Check that compromisos are 0
     assert util_1.get("compromisos_mes_siguiente", 0.0) == 0.0
     assert util_1.get("compromisos_mes_2", 0.0) == 0.0
+    assert util_1.get("compromisos_mes_3", 0.0) == 0.0
     
     proy_1 = calcular_proyeccion_futura(
         util_modalidad=util_1,
@@ -49,8 +50,10 @@ def run_tests():
     
     assert proy_1["mes_1"]["comprometido"] == 0.0
     assert proy_1["mes_2"]["comprometido"] == 0.0
+    assert proy_1["mes_3"]["comprometido"] == 0.0
     assert proy_1["mes_1"]["consumo_pct"] == 0.0
     assert proy_1["mes_2"]["consumo_pct"] == 0.0
+    assert proy_1["mes_3"]["consumo_pct"] == 0.0
     
     # ---------------------------------------------------------
     # Escenario 2: Solo Crédito 30d
@@ -70,6 +73,7 @@ def run_tests():
     
     assert util_2["compromisos_mes_siguiente"] == 10000.0
     assert util_2.get("compromisos_mes_2", 0.0) == 0.0
+    assert util_2.get("compromisos_mes_3", 0.0) == 0.0
     
     proy_2 = calcular_proyeccion_futura(
         util_modalidad=util_2,
@@ -84,6 +88,7 @@ def run_tests():
     
     assert proy_2["mes_1"]["comprometido"] == 10000.0
     assert proy_2["mes_2"]["comprometido"] == 0.0
+    assert proy_2["mes_3"]["comprometido"] == 0.0
 
     # ---------------------------------------------------------
     # Escenario 3: Mix Contado + 30d + 60d
@@ -105,6 +110,7 @@ def run_tests():
     
     assert util_3["compromisos_mes_siguiente"] == 5000.0
     assert util_3.get("compromisos_mes_2", 0.0) == 4000.0
+    assert util_3.get("compromisos_mes_3", 0.0) == 0.0
     
     proy_3 = calcular_proyeccion_futura(
         util_modalidad=util_3,
@@ -118,6 +124,7 @@ def run_tests():
     )
     assert proy_3["mes_1"]["comprometido"] == 5000.0
     assert proy_3["mes_2"]["comprometido"] == 4000.0
+    assert proy_3["mes_3"]["comprometido"] == 0.0
 
     # ---------------------------------------------------------
     # Escenario 4: Crédito 45d cruzando mes
@@ -138,6 +145,7 @@ def run_tests():
     )
     assert util_4["compromisos_mes_siguiente"] == 0.0
     assert util_4.get("compromisos_mes_2", 0.0) == 8000.0
+    assert util_4.get("compromisos_mes_3", 0.0) == 0.0
     
     proy_4 = calcular_proyeccion_futura(
         util_modalidad=util_4,
@@ -151,6 +159,7 @@ def run_tests():
     )
     assert proy_4["mes_1"]["comprometido"] == 0.0
     assert proy_4["mes_2"]["comprometido"] == 8000.0
+    assert proy_4["mes_3"]["comprometido"] == 0.0
 
     # ---------------------------------------------------------
     # Escenario 5: Crédito 45d inicio de mes
@@ -171,6 +180,7 @@ def run_tests():
     )
     assert util_5["compromisos_mes_siguiente"] == 8000.0
     assert util_5.get("compromisos_mes_2", 0.0) == 0.0
+    assert util_5.get("compromisos_mes_3", 0.0) == 0.0
     
     proy_5 = calcular_proyeccion_futura(
         util_modalidad=util_5,
@@ -184,10 +194,11 @@ def run_tests():
     )
     assert proy_5["mes_1"]["comprometido"] == 8000.0
     assert proy_5["mes_2"]["comprometido"] == 0.0
+    assert proy_5["mes_3"]["comprometido"] == 0.0
 
     # ---------------------------------------------------------
-    # Escenario 6: Deudas futuras en cola
-    # deudas_futuras con vencimiento en Mes+1 y Mes+2 heredadas.
+    # Escenario 6: Deudas futuras en cola (incluye Mes+3)
+    # deudas_futuras con vencimiento en Mes+1, Mes+2 y Mes+3 heredadas.
     # ---------------------------------------------------------
     print("Test 6: Deudas futuras en cola...")
     deudas_futuras_cola = [
@@ -204,6 +215,14 @@ def run_tests():
             "monto": 4000.0,
             "proveedor": "ProvCola2",
             "mes_vencimiento": 7,
+            "ano_vencimiento": 2026,
+            "modalidad_original": "Crédito 60 días"
+        },
+        {
+            "id": "mno-456",
+            "monto": 5000.0,
+            "proveedor": "ProvCola3",
+            "mes_vencimiento": 8,
             "ano_vencimiento": 2026,
             "modalidad_original": "Crédito 60 días"
         }
@@ -228,6 +247,7 @@ def run_tests():
     )
     assert proy_6["mes_1"]["comprometido"] == 3000.0
     assert proy_6["mes_2"]["comprometido"] == 4000.0
+    assert proy_6["mes_3"]["comprometido"] == 5000.0
 
     # ---------------------------------------------------------
     # Escenario 7: Sobrepaso límite futuro
@@ -245,11 +265,6 @@ def run_tests():
         mes_actual=5,
         ano_actual=2026
     )
-    # límite para 120k con balance = 120k * 0.15 = 18k (sin ajuste de gastos)
-    # let's set sidebar to 100k, gastos to 90k, so available is 10k, limit_real should be adjusted.
-    # limite_sugerido = 100k * 0.15 = 15k. saldo_disponible = 10k.
-    # since sugerido > disponible (15k > 10k), limite_real = 10k * 0.8 = 8k.
-    # if comprometido is 15k, consumption is 15k / 8k = 187.5% -> Rojo.
     proy_7 = calcular_proyeccion_futura(
         util_modalidad=util_7,
         deudas_futuras=[],
@@ -267,7 +282,7 @@ def run_tests():
 
     # ---------------------------------------------------------
     # Escenario 8: Cruce de año
-    # Mes=Diciembre 2026, crédito 30d -> Mes+1 = Enero 2027, Mes+2 = Febrero 2027
+    # Mes=Diciembre 2026, crédito 30d -> Mes+1 = Ene 2027, Mes+2 = Feb 2027, Mes+3 = Mar 2027
     # ---------------------------------------------------------
     print("Test 8: Cruce de año...")
     compras_8 = [
@@ -302,6 +317,11 @@ def run_tests():
     assert "Febrero" in proy_8["mes_2"]["nombre"]
     assert proy_8["mes_2"]["comprometido"] == 3000.0
 
+    assert proy_8["mes_3"]["mes"] == 3
+    assert proy_8["mes_3"]["ano"] == 2027
+    assert "Marzo" in proy_8["mes_3"]["nombre"]
+    assert proy_8["mes_3"]["comprometido"] == 0.0
+
     # ---------------------------------------------------------
     # Escenario 9: Sin compras
     # ---------------------------------------------------------
@@ -326,6 +346,7 @@ def run_tests():
     )
     assert proy_9["mes_1"]["comprometido"] == 0.0
     assert proy_9["mes_2"]["comprometido"] == 0.0
+    assert proy_9["mes_3"]["comprometido"] == 0.0
 
     # ---------------------------------------------------------
     # Escenario 10: Extrapolación de Caja Diaria
