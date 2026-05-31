@@ -284,5 +284,17 @@ html, body, [class*="css"], .stText, .stMarkdown {
     border-left: 4px solid #FF4B4B !important;
 }
 
+/* Coloración de los valores principales (números grandes) */
+.kpi-sales .kpi-value {
+    color: #09AB3B !important;
+}
+.kpi-utility-positive .kpi-value {
+    color: #09AB3B !important;
+}
+.kpi-utility-negative .kpi-value {
+    color: #FF4B4B !important;
+}
+
+
 
 

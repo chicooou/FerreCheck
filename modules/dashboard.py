@@ -57,7 +57,7 @@ def render_dashboard(p: dict, calc_results: dict):
     
     subcontenido_ventas = f"""
     <div class="kpi-subtext">
-        <span>Base Proyección ({pct_avance:.1f}%):</span>
+        <span>Base Proyección:</span>
         <span style="font-weight: 600; color: #FFFFFF;">{format_currency_clean(ventas_proyeccion)}</span>
     </div>
     <div class="kpi-progress-bar">
@@ -82,7 +82,7 @@ def render_dashboard(p: dict, calc_results: dict):
     st.markdown(
         clean_html(f"""
         <div class="kpis-grid">
-            {render_kpi_card("Ventas del Mes", format_currency_clean(ventas_acumuladas), "💵", "Ventas reales acumuladas en Caja Diaria este mes.", subcontenido_ventas, "kpi-sales")}
+            {render_kpi_card("Ventas del Mes", f"{format_currency_clean(ventas_acumuladas)} ({pct_avance:.1f}%)", "💵", "Ventas reales acumuladas en Caja Diaria este mes.", subcontenido_ventas, "kpi-sales")}
             {render_kpi_card("Gastos Fijos", format_currency_clean(calc_results["gastos_totales"]), "📋", "Suma de Planilla, Renta, Luz y Otros gastos recurrentes.", extra_class="kpi-expenses")}
             {render_kpi_card("Límite de Compra", limite_texto, "🎯", "Presupuesto máximo de compras asignado al mes actual.", extra_class="kpi-limit")}
             {render_kpi_card("Utilidad Real del Mes", format_currency_clean(utilidad_real_acumulada), icono_util, "Utilidad real acumulada a la fecha (Ventas de Caja Diaria menos Gastos Fijos y egresos reales de compras y deudas de este mes).", subcontenido_utilidad, clase_util)}
@@ -281,13 +281,13 @@ def render_dashboard(p: dict, calc_results: dict):
                 Para darte un número exacto y real, solo restamos el dinero que **efectivamente salió de tu bolsa este mes**.
                 
                 **Fórmula:**
-                * **Ventas:** `+ {format_currency_clean(p['ventas'])}`
+                * **Ventas (Caja Diaria Acumulada):** `+ {format_currency_clean(ventas_acumuladas)}`
                 * **Gastos Fijos:** `- {format_currency_clean(calc_results['gastos_totales'])}`
                 * **Compras al Contado:** `- {format_currency_clean(calc_results.get('util_modalidad', {}).get('egreso_contado', 0))}`
                 * **Créditos a Vencer este Mes:** `- {format_currency_clean(calc_results.get('util_modalidad', {}).get('egreso_credito_mes_actual', 0))}`
                 * **Deudas Heredadas:** `- {format_currency_clean(calc_results.get('util_modalidad', {}).get('egreso_deudas_heredadas', 0))}`
                 ---
-                * **= Utilidad Real:** `{format_currency_clean(util)}`
+                * **= Utilidad Real:** `{format_currency_clean(utilidad_real_acumulada)}`
                 
                 *(Las compras a crédito a 30, 45 o 60 días no se restan aquí porque las pagarás en meses futuros).*
                 """)
