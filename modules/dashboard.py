@@ -146,6 +146,19 @@ def render_dashboard(p: dict, calc_results: dict):
     elif semaforo["status"] == "error":
         st.error(mensaje_alerta)
 
+    # 3b. Barras predictivas de compromisos futuros
+    render_barras_predictivas(calc_results)
+
+    # Notificación de madurez del historial (Fase 2)
+    madurez = calc_results.get("madurez_historial")
+    if madurez and madurez.get("puede_usar_promedio"):
+        n = madurez["periodos_cerrados"]
+        st.info(
+            f"💡 **¡Ya tienes {n} meses de historial!** Las proyecciones de pagos futuros "
+            f"pueden ser más precisas usando un promedio histórico de ventas en lugar de la "
+            f"extrapolación de Caja Diaria. Esta función estará disponible próximamente."
+        )
+
     # 4. Panel de Desglose de Utilidad Real
     st.write("---")
     st.markdown("### 💰 Desglose de Utilidad Real del Mes")
@@ -268,3 +281,64 @@ def render_dashboard(p: dict, calc_results: dict):
                     )
     else:
         st.info("✅ No hay compromisos de crédito pendientes para meses futuros en este período.")
+
+
+def render_barras_predictivas(calc_results: dict):
+    """Renderiza las barras de compromisos futuros para Mes+1 y Mes+2."""
+    proyeccion = calc_results.get("proyeccion_futura")
+    if not proyeccion:
+        return
+    
+    st.markdown("### 📅 Compromisos de Pago Futuros")
+    
+    metodo = proyeccion["metodo_proyeccion"]
+    ventas_proy = proyeccion["ventas_proyectadas"]
+    
+    # Nota informativa sobre cómo se calculó el límite
+    if metodo == "caja_diaria":
+        st.caption(
+            f"ℹ️ Límites proyectados basados en extrapolación de Caja Diaria "
+            f"de este mes ({format_currency(ventas_proy)} estimados de venta)."
+        )
+    else:
+        st.caption(
+            f"ℹ️ Límites basados en el campo Ventas del sidebar ({format_currency(ventas_proy)} base) "
+            f"debido a que no hay registros en la Caja Diaria para extrapolar."
+        )
+        
+    for key in ["mes_1", "mes_2"]:
+        data = proyeccion[key]
+        semaforo = data["semaforo"]
+        pct = data["consumo_pct"]
+        
+        # Barra HTML con borde punteado para diferenciarla de la actual
+        st.markdown(f"""
+        <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); 
+             margin-top: 10px; padding: 12px; border-radius: 5px; background-color: rgba(255,255,255,0.02);">
+            <div class="progress-header" style="margin-bottom: 8px;">
+                <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">
+                    📅 Compromisos para <b>{data['nombre']}</b>: 
+                    <b>{format_currency(data['comprometido'])}</b> comprometidos 
+                    de un límite proyectado de <b>{format_currency(data['limite_proyectado'])}</b>
+                </span>
+                <span class="progress-percentage" style="color: {semaforo['hex']}; font-weight: 600; font-size: 14px;">
+                    {pct:.1f}% Comprometido
+                </span>
+            </div>
+            <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; 
+                        height: 12px; width: 100%; overflow: hidden;">
+                <div style="background-color: {semaforo['hex']}; 
+                     width: {min(pct, 100)}%; height: 100%; border-radius: 10px; 
+                     transition: width 0.5s ease-in-out;"></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Expander con detalle de proveedores
+        if data["detalle"]:
+            with st.expander(f"📋 Ver detalle de compromisos para {data['nombre']}", expanded=False):
+                for d in data["detalle"]:
+                    st.markdown(
+                        f"- **{d['proveedor']}** — {format_currency(d['monto'])} "
+                        f"({d.get('modalidad', '?')})"
+                    )

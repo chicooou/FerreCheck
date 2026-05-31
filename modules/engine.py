@@ -8,7 +8,7 @@ v2: Incorpora cálculo de Utilidad Real segmentada por modalidad de pago (Contad
 import datetime
 from typing import Dict, List, Any, Tuple
 
-from config import ESTRATEGIAS, TOPE_SEGURIDAD_PORCENTAJE
+from config import ESTRATEGIAS, TOPE_SEGURIDAD_PORCENTAJE, MESES
 
 # Mapa de días de crédito por modalidad
 DIAS_CREDITO: Dict[str, int] = {
@@ -122,7 +122,8 @@ def calcular_utilidad_por_modalidad(
     egreso_contado = 0.0
     egreso_credito_mes_actual = 0.0
     compromisos_mes_siguiente = 0.0
-    compromisos_mes_2_plus = 0.0
+    compromisos_mes_2 = 0.0
+    compromisos_mes_3_plus = 0.0
     detalle_compromisos_futuros: List[Dict[str, Any]] = []
 
     for c in compras:
@@ -147,8 +148,19 @@ def calcular_utilidad_por_modalidad(
                     "ano_vencimiento": ano_venc,
                     "distancia_meses": dist
                 })
+            elif dist == 2:
+                compromisos_mes_2 += c["monto"]
+                detalle_compromisos_futuros.append({
+                    "monto": c["monto"],
+                    "proveedor": c.get("proveedor", "?"),
+                    "modalidad": modalidad,
+                    "fecha_compra": c["fecha"],
+                    "mes_vencimiento": mes_venc,
+                    "ano_vencimiento": ano_venc,
+                    "distancia_meses": dist
+                })
             else:
-                compromisos_mes_2_plus += c["monto"]
+                compromisos_mes_3_plus += c["monto"]
                 detalle_compromisos_futuros.append({
                     "monto": c["monto"],
                     "proveedor": c.get("proveedor", "?"),
@@ -159,6 +171,7 @@ def calcular_utilidad_por_modalidad(
                     "distancia_meses": dist
                 })
 
+    compromisos_mes_2_plus = compromisos_mes_2 + compromisos_mes_3_plus
     # Deudas heredadas de meses anteriores que vencen este mes
     egreso_deudas_heredadas = sum(d["monto"] for d in deudas_heredadas)
 
@@ -172,6 +185,8 @@ def calcular_utilidad_por_modalidad(
         "egreso_deudas_heredadas": egreso_deudas_heredadas,
         "egreso_real_mes": egreso_real_mes,
         "compromisos_mes_siguiente": compromisos_mes_siguiente,
+        "compromisos_mes_2": compromisos_mes_2,
+        "compromisos_mes_3_plus": compromisos_mes_3_plus,
         "compromisos_mes_2_plus": compromisos_mes_2_plus,
         "compromisos_total_futuro": compromisos_mes_siguiente + compromisos_mes_2_plus,
         "detalle_compromisos_futuros": detalle_compromisos_futuros,
@@ -278,3 +293,164 @@ def obtener_estado_semaforo(consumo_pct: float) -> Dict[str, str]:
             "mensaje": "¡Crítico! Has alcanzado o superado el límite de compra establecido para evitar descapitalización.",
             "status": "error"
         }
+
+
+def calcular_proyeccion_futura(
+    util_modalidad: dict,
+    deudas_futuras: list,
+    ventas_diarias: list,
+    ventas_sidebar: float,
+    gastos: dict,
+    estrategia: str,
+    mes_actual: int,
+    ano_actual: int
+) -> dict:
+    """
+    Calcula la proyección de compromisos para Mes+1 y Mes+2.
+    El límite proyectado se basa en la extrapolación de Caja Diaria
+    del mes actual (o ventas_sidebar como fallback).
+    """
+    import calendar
+    
+    # 1. Determinar días del mes y días transcurridos
+    dias_del_mes = calendar.monthrange(ano_actual, mes_actual)[1]
+    
+    dias_transcurridos = 1
+    if ventas_diarias:
+        try:
+            dias = [int(v["fecha"].split("-")[2]) for v in ventas_diarias if "fecha" in v and v.get("fecha")]
+            if dias:
+                min_day = min(dias)
+                max_day = max(dias)
+                dias_transcurridos = max(1, max_day - min_day + 1)
+        except Exception:
+            dias_transcurridos = 1
+            
+    # 2. Calcular ventas proyectadas
+    acumulado_caja = sum(v["monto"] for v in ventas_diarias)
+    if acumulado_caja > 0:
+        ventas_proyectadas = (acumulado_caja / dias_transcurridos) * dias_del_mes
+        metodo_proyeccion = "caja_diaria"
+    else:
+        ventas_proyectadas = ventas_sidebar
+        metodo_proyeccion = "fallback_sidebar"
+        
+    # 3. Calcular límite de compra proyectado
+    gastos_totales = sum(gastos.values())
+    res_limite = calcular_limite_compra(ventas_proyectadas, gastos_totales, estrategia)
+    limite_proyectado = res_limite["limite_real"]
+    
+    # 4. Calcular Mes+1 y Mes+2 numéricos y nombres
+    mes_1_num = mes_actual + 1
+    ano_1_num = ano_actual
+    if mes_1_num > 12:
+        mes_1_num = 1
+        ano_1_num += 1
+        
+    mes_2_num = mes_actual + 2
+    ano_2_num = ano_actual
+    if mes_2_num > 12:
+        mes_2_num -= 12
+        ano_2_num += 1
+        
+    nombre_mes_1 = f"{MESES.get(mes_1_num, 'Desconocido')} {ano_1_num}"
+    nombre_mes_2 = f"{MESES.get(mes_2_num, 'Desconocido')} {ano_2_num}"
+    
+    # 5. Reunir compromisos de Mes+1
+    detalle_1 = []
+    # De las compras del mes actual:
+    for d in util_modalidad.get("detalle_compromisos_futuros", []):
+        if d.get("mes_vencimiento") == mes_1_num and d.get("ano_vencimiento") == ano_1_num:
+            detalle_1.append({
+                "proveedor": d.get("proveedor", "?"),
+                "monto": d["monto"],
+                "modalidad": d.get("modalidad", "?")
+            })
+    # De las deudas futuras heredadas en cola:
+    for d in deudas_futuras:
+        if d.get("mes_vencimiento") == mes_1_num and d.get("ano_vencimiento") == ano_1_num:
+            detalle_1.append({
+                "proveedor": d.get("proveedor", "?"),
+                "monto": d["monto"],
+                "modalidad": d.get("modalidad_original", "?") + " (Heredada)"
+            })
+    comprometido_1 = sum(item["monto"] for item in detalle_1)
+    
+    # 6. Reunir compromisos de Mes+2
+    detalle_2 = []
+    # De las compras del mes actual:
+    for d in util_modalidad.get("detalle_compromisos_futuros", []):
+        if d.get("mes_vencimiento") == mes_2_num and d.get("ano_vencimiento") == ano_2_num:
+            detalle_2.append({
+                "proveedor": d.get("proveedor", "?"),
+                "monto": d["monto"],
+                "modalidad": d.get("modalidad", "?")
+            })
+    # De las deudas futuras heredadas en cola:
+    for d in deudas_futuras:
+        if d.get("mes_vencimiento") == mes_2_num and d.get("ano_vencimiento") == ano_2_num:
+            detalle_2.append({
+                "proveedor": d.get("proveedor", "?"),
+                "monto": d["monto"],
+                "modalidad": d.get("modalidad_original", "?") + " (Heredada)"
+            })
+    comprometido_2 = sum(item["monto"] for item in detalle_2)
+    
+    # 7. Calcular porcentajes y semáforos
+    consumo_pct_1 = 0.0
+    if limite_proyectado > 0:
+        consumo_pct_1 = (comprometido_1 / limite_proyectado) * 100.0
+    elif comprometido_1 > 0:
+        consumo_pct_1 = 100.0
+        
+    semaforo_1 = obtener_estado_semaforo(consumo_pct_1)
+    
+    consumo_pct_2 = 0.0
+    if limite_proyectado > 0:
+        consumo_pct_2 = (comprometido_2 / limite_proyectado) * 100.0
+    elif comprometido_2 > 0:
+        consumo_pct_2 = 100.0
+        
+    semaforo_2 = obtener_estado_semaforo(consumo_pct_2)
+    
+    return {
+        "ventas_proyectadas": ventas_proyectadas,
+        "metodo_proyeccion": metodo_proyeccion,
+        "mes_1": {
+            "nombre": nombre_mes_1,
+            "mes": mes_1_num,
+            "ano": ano_1_num,
+            "comprometido": comprometido_1,
+            "limite_proyectado": limite_proyectado,
+            "consumo_pct": consumo_pct_1,
+            "semaforo": semaforo_1,
+            "detalle": detalle_1
+        },
+        "mes_2": {
+            "nombre": nombre_mes_2,
+            "mes": mes_2_num,
+            "ano": ano_2_num,
+            "comprometido": comprometido_2,
+            "limite_proyectado": limite_proyectado,
+            "consumo_pct": consumo_pct_2,
+            "semaforo": semaforo_2,
+            "detalle": detalle_2
+        }
+    }
+
+
+def evaluar_madurez_historial(historial: dict) -> dict:
+    """
+    Evalúa cuántos períodos cerrados existen y si ya es viable
+    cambiar a proyección por promedio histórico.
+    """
+    if not historial:
+        return {"periodos_cerrados": 0, "puede_usar_promedio": False}
+        
+    periodos_cerrados = len(historial)
+    puede_usar_promedio = periodos_cerrados >= 6
+    
+    return {
+        "periodos_cerrados": periodos_cerrados,
+        "puede_usar_promedio": puede_usar_promedio
+    }

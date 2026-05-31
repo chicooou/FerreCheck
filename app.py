@@ -16,7 +16,8 @@ from modules.history import (
     render_history_view,
     render_close_period_button,
     load_current_period,
-    save_current_period
+    save_current_period,
+    load_history
 )
 from modules.engine import (
     calcular_gastos_totales,
@@ -24,7 +25,9 @@ from modules.engine import (
     calcular_total_compras,
     calcular_utilidad_estimada,
     calcular_utilidad_por_modalidad,
-    calcular_consumo_presupuesto
+    calcular_consumo_presupuesto,
+    calcular_proyeccion_futura,
+    evaluar_madurez_historial
 )
 
 # 1. Configuración de página
@@ -71,6 +74,22 @@ util_modalidad = calcular_utilidad_por_modalidad(
     ano_actual=p["ano"]
 )
 
+# Calcular proyecciones futuras
+proyeccion_futura = calcular_proyeccion_futura(
+    util_modalidad=util_modalidad,
+    deudas_futuras=p.get("deudas_futuras", []),
+    ventas_diarias=p.get("ventas_diarias", []),
+    ventas_sidebar=p["ventas"],
+    gastos=p["gastos"],
+    estrategia=p["estrategia"],
+    mes_actual=p["mes"],
+    ano_actual=p["ano"]
+)
+
+# Cargar historial y evaluar madurez para promedio histórico
+historial = load_history()
+madurez_historial = evaluar_madurez_historial(historial)
+
 consumo_pct = calcular_consumo_presupuesto(total_compras, limite_real)
 
 calc_results = {
@@ -83,7 +102,9 @@ calc_results = {
     "utilidad_estimada": calcular_utilidad_estimada(p["ventas"], gastos_totales, total_compras),  # Legacy
     "utilidad_real": util_modalidad["utilidad_real"],  # Nueva métrica correcta
     "util_modalidad": util_modalidad,
-    "consumo_pct": consumo_pct
+    "consumo_pct": consumo_pct,
+    "proyeccion_futura": proyeccion_futura,
+    "madurez_historial": madurez_historial
 }
 
 # Botón de Cierre de Período en la parte inferior del Sidebar
