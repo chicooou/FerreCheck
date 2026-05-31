@@ -123,8 +123,7 @@ def calcular_utilidad_por_modalidad(
     egreso_credito_mes_actual = 0.0
     compromisos_mes_siguiente = 0.0
     compromisos_mes_2 = 0.0
-    compromisos_mes_3 = 0.0
-    compromisos_mes_4_plus = 0.0
+    compromisos_mes_3_plus = 0.0
     detalle_compromisos_futuros: List[Dict[str, Any]] = []
 
     for c in compras:
@@ -160,19 +159,8 @@ def calcular_utilidad_por_modalidad(
                     "ano_vencimiento": ano_venc,
                     "distancia_meses": dist
                 })
-            elif dist == 3:
-                compromisos_mes_3 += c["monto"]
-                detalle_compromisos_futuros.append({
-                    "monto": c["monto"],
-                    "proveedor": c.get("proveedor", "?"),
-                    "modalidad": modalidad,
-                    "fecha_compra": c["fecha"],
-                    "mes_vencimiento": mes_venc,
-                    "ano_vencimiento": ano_venc,
-                    "distancia_meses": dist
-                })
             else:
-                compromisos_mes_4_plus += c["monto"]
+                compromisos_mes_3_plus += c["monto"]
                 detalle_compromisos_futuros.append({
                     "monto": c["monto"],
                     "proveedor": c.get("proveedor", "?"),
@@ -183,7 +171,6 @@ def calcular_utilidad_por_modalidad(
                     "distancia_meses": dist
                 })
 
-    compromisos_mes_3_plus = compromisos_mes_3 + compromisos_mes_4_plus
     compromisos_mes_2_plus = compromisos_mes_2 + compromisos_mes_3_plus
     # Deudas heredadas de meses anteriores que vencen este mes
     egreso_deudas_heredadas = sum(d["monto"] for d in deudas_heredadas)
@@ -199,8 +186,6 @@ def calcular_utilidad_por_modalidad(
         "egreso_real_mes": egreso_real_mes,
         "compromisos_mes_siguiente": compromisos_mes_siguiente,
         "compromisos_mes_2": compromisos_mes_2,
-        "compromisos_mes_3": compromisos_mes_3,
-        "compromisos_mes_4_plus": compromisos_mes_4_plus,
         "compromisos_mes_3_plus": compromisos_mes_3_plus,
         "compromisos_mes_2_plus": compromisos_mes_2_plus,
         "compromisos_total_futuro": compromisos_mes_siguiente + compromisos_mes_2_plus,
@@ -355,7 +340,7 @@ def calcular_proyeccion_futura(
     res_limite = calcular_limite_compra(ventas_proyectadas, gastos_totales, estrategia)
     limite_proyectado = res_limite["limite_real"]
     
-    # 4. Calcular Mes+1, Mes+2 y Mes+3 numéricos y nombres
+    # 4. Calcular Mes+1 y Mes+2 numéricos y nombres
     mes_1_num = mes_actual + 1
     ano_1_num = ano_actual
     if mes_1_num > 12:
@@ -367,16 +352,9 @@ def calcular_proyeccion_futura(
     if mes_2_num > 12:
         mes_2_num -= 12
         ano_2_num += 1
-
-    mes_3_num = mes_actual + 3
-    ano_3_num = ano_actual
-    if mes_3_num > 12:
-        mes_3_num -= 12
-        ano_3_num += 1
         
     nombre_mes_1 = f"{MESES.get(mes_1_num, 'Desconocido')} {ano_1_num}"
     nombre_mes_2 = f"{MESES.get(mes_2_num, 'Desconocido')} {ano_2_num}"
-    nombre_mes_3 = f"{MESES.get(mes_3_num, 'Desconocido')} {ano_3_num}"
     
     # 5. Reunir compromisos de Mes+1
     detalle_1 = []
@@ -417,26 +395,6 @@ def calcular_proyeccion_futura(
                 "modalidad": d.get("modalidad_original", "?") + " (Heredada)"
             })
     comprometido_2 = sum(item["monto"] for item in detalle_2)
-
-    # 6b. Reunir compromisos de Mes+3
-    detalle_3 = []
-    # De las compras del mes actual:
-    for d in util_modalidad.get("detalle_compromisos_futuros", []):
-        if d.get("mes_vencimiento") == mes_3_num and d.get("ano_vencimiento") == ano_3_num:
-            detalle_3.append({
-                "proveedor": d.get("proveedor", "?"),
-                "monto": d["monto"],
-                "modalidad": d.get("modalidad", "?")
-            })
-    # De las deudas futuras heredadas en cola:
-    for d in deudas_futuras:
-        if d.get("mes_vencimiento") == mes_3_num and d.get("ano_vencimiento") == ano_3_num:
-            detalle_3.append({
-                "proveedor": d.get("proveedor", "?"),
-                "monto": d["monto"],
-                "modalidad": d.get("modalidad_original", "?") + " (Heredada)"
-            })
-    comprometido_3 = sum(item["monto"] for item in detalle_3)
     
     # 7. Calcular porcentajes y semáforos
     consumo_pct_1 = 0.0
@@ -454,14 +412,6 @@ def calcular_proyeccion_futura(
         consumo_pct_2 = 100.0
         
     semaforo_2 = obtener_estado_semaforo(consumo_pct_2)
-
-    consumo_pct_3 = 0.0
-    if limite_proyectado > 0:
-        consumo_pct_3 = (comprometido_3 / limite_proyectado) * 100.0
-    elif comprometido_3 > 0:
-        consumo_pct_3 = 100.0
-        
-    semaforo_3 = obtener_estado_semaforo(consumo_pct_3)
     
     return {
         "ventas_proyectadas": ventas_proyectadas,
@@ -485,16 +435,6 @@ def calcular_proyeccion_futura(
             "consumo_pct": consumo_pct_2,
             "semaforo": semaforo_2,
             "detalle": detalle_2
-        },
-        "mes_3": {
-            "nombre": nombre_mes_3,
-            "mes": mes_3_num,
-            "ano": ano_3_num,
-            "comprometido": comprometido_3,
-            "limite_proyectado": limite_proyectado,
-            "consumo_pct": consumo_pct_3,
-            "semaforo": semaforo_3,
-            "detalle": detalle_3
         }
     }
 

@@ -130,11 +130,12 @@ def render_dashboard(p: dict, calc_results: dict):
     else:
         texto_libre_actual = f" (<b>{format_currency(abs(libre_actual))}</b> excedido ⚠️)"
 
+    # Barra 1: Compras de este Mes (Compras hechas en este período)
     st.markdown(
         f"""
         <div class="progress-container">
             <div class="progress-header">
-                <span class="progress-title">💵 Compras al Contado (y Vencimientos de <b>{nombre_mes_actual}</b>): <b>{format_currency(total_compras)}</b> de un límite de <b>{format_currency(limite_real)}</b>{texto_libre_actual}</span>
+                <span class="progress-title">🚦 Compras de <b>{nombre_mes_actual}</b> (Hechas este mes): <b>{format_currency(total_compras)}</b> de un límite de <b>{format_currency(limite_real)}</b>{texto_libre_actual}</span>
                 <span class="progress-percentage" style="color: {semaforo['hex']};">{consumo_pct:.1f}% Consumido</span>
             </div>
             <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; height: 16px; width: 100%; overflow: hidden;">
@@ -145,13 +146,44 @@ def render_dashboard(p: dict, calc_results: dict):
         unsafe_allow_html=True
     )
 
-    mensaje_alerta = f"**Estado Presupuesto: {semaforo['emoji']} {semaforo['color']}** - {semaforo['mensaje']}"
+    mensaje_alerta = f"**Estado Compras del Mes: {semaforo['emoji']} {semaforo['color']}** - {semaforo['mensaje']}"
     if semaforo["status"] == "success":
         st.success(mensaje_alerta)
     elif semaforo["status"] == "warning":
         st.warning(mensaje_alerta)
     elif semaforo["status"] == "error":
         st.error(mensaje_alerta)
+
+    # Barra 2: Pagos del Mes Actual (Contado + Deudas Heredadas)
+    util_data = calc_results.get("util_modalidad", {})
+    total_pagos = util_data.get("egreso_real_mes", 0.0)
+    consumo_pagos_pct = 0.0
+    if limite_real > 0:
+        consumo_pagos_pct = (total_pagos / limite_real) * 100.0
+    elif total_pagos > 0:
+        consumo_pagos_pct = 100.0
+        
+    semaforo_pagos = obtener_estado_semaforo(consumo_pagos_pct)
+    libre_pagos = limite_real - total_pagos
+    if libre_pagos >= 0:
+        texto_libre_pagos = f" (<b>{format_currency(libre_pagos)}</b> libre)"
+    else:
+        texto_libre_pagos = f" (<b>{format_currency(abs(libre_pagos))}</b> excedido ⚠️)"
+        
+    st.markdown(
+        f"""
+        <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); margin-top: 10px; padding: 12px; border-radius: 5px; background-color: rgba(255,255,255,0.02);">
+            <div class="progress-header">
+                <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">💵 Pagos de <b>{nombre_mes_actual}</b> (Contado + Deudas Heredadas): <b>{format_currency(total_pagos)}</b> de un límite de <b>{format_currency(limite_real)}</b>{texto_libre_pagos}</span>
+                <span class="progress-percentage" style="color: {semaforo_pagos['hex']}; font-weight: 600; font-size: 14px;">{consumo_pagos_pct:.1f}% Pagado</span>
+            </div>
+            <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; height: 12px; width: 100%; overflow: hidden;">
+                <div style="background-color: {semaforo_pagos['hex']}; width: {min(consumo_pagos_pct, 100)}%; height: 100%; border-radius: 10px; transition: width 0.5s ease-in-out;"></div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     # 3b. Barras predictivas de compromisos futuros
     render_barras_predictivas(calc_results)
@@ -313,8 +345,7 @@ def render_barras_predictivas(calc_results: dict):
             f"debido a que no hay registros en la Caja Diaria para extrapolar."
         )
         
-    mes_siguiente_nombre = proyeccion["mes_1"]["nombre"]
-    for key in ["mes_1", "mes_2", "mes_3"]:
+    for key in ["mes_1", "mes_2"]:
         data = proyeccion[key]
         semaforo = data["semaforo"]
         pct = data["consumo_pct"]
@@ -326,30 +357,18 @@ def render_barras_predictivas(calc_results: dict):
         else:
             texto_libre = f" (<b>{format_currency(abs(libre))}</b> excedido ⚠️)"
         
-        # Determinar el tipo de compra a crédito recomendada para este vencimiento
-        if key == "mes_1":
-            label_tipo = f"Pagos Comprometidos de {data['nombre']}"
-            label_ayuda = f"Determina compras al contado en {data['nombre']}"
-        elif key == "mes_2":
-            label_tipo = f"Margen para Crédito 30 días en {mes_siguiente_nombre}"
-            label_ayuda = f"Vence en {data['nombre']}"
-        else:
-            label_tipo = f"Margen para Crédito 60 días en {mes_siguiente_nombre}"
-            label_ayuda = f"Vence en {data['nombre']}"
-        
         # Barra HTML con borde punteado para diferenciarla de la actual
         st.markdown(f"""
         <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); 
              margin-top: 10px; padding: 12px; border-radius: 5px; background-color: rgba(255,255,255,0.02);">
             <div class="progress-header" style="margin-bottom: 8px;">
                 <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">
-                    📅 <b>{label_tipo}</b> (<i>{label_ayuda}</i>): 
-                    <b>{format_currency(data['comprometido'])}</b> comprometidos 
-                    de un límite proyectado de <b>{format_currency(data['limite_proyectado'])}</b>
+                    📅 Pagos de <b>{data['nombre']}</b>: 
+                    <b>{format_currency(data['comprometido'])}</b> de un límite proyectado de <b>{format_currency(data['limite_proyectado'])}</b>
                     {texto_libre}
                 </span>
                 <span class="progress-percentage" style="color: {semaforo['hex']}; font-weight: 600; font-size: 14px;">
-                    {pct:.1f}% Comprometido
+                    {pct:.1f}% Pagado
                 </span>
             </div>
             <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; 
