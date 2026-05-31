@@ -26,8 +26,17 @@ def render_dashboard(p: dict, calc_results: dict):
     Renderiza las métricas clave, el semáforo financiero, el desglose de Utilidad Real
     y la proyección de compromisos futuros por fecha de vencimiento.
     """
-    # 1. Tarjetas KPI (fila superior)
-    st.markdown("### 📊 Estado de Flujo de Caja")
+    # 1. Cabecera con Badge de Estrategia Activa
+    est_info = ESTRATEGIAS.get(p["estrategia"], ESTRATEGIAS["balance"])
+    st.markdown(
+        f"""
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+            <h3 style="margin: 0; font-size: 20px; font-weight: 600; color: #FFFFFF;">📊 Estado de Flujo de Caja</h3>
+            <span class="strategy-badge strategy-badge-{p['estrategia']}">{est_info['nombre']}</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -83,24 +92,7 @@ def render_dashboard(p: dict, calc_results: dict):
 
     st.write("")
 
-    with st.expander("💡 ¿Cómo se calcula la Utilidad Real de este mes?", expanded=False):
-        st.markdown(f"""
-        Para darte un número exacto y real, solo restamos el dinero que **efectivamente salió de tu bolsa este mes**.
-        
-        **Fórmula:**
-        * **Ventas:** `+ {format_currency(p['ventas'])}`
-        * **Gastos Fijos:** `- {format_currency(calc_results['gastos_totales'])}`
-        * **Compras al Contado:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_contado', 0))}`
-        * **Créditos a Vencer este Mes:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_credito_mes_actual', 0))}`
-        * **Deudas Heredadas:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_deudas_heredadas', 0))}`
-        ---
-        * **= Utilidad Real:** `{format_currency(util)}`
-        
-        *(Las compras a crédito a 30, 45 o 60 días no se restan aquí porque las pagarás en meses futuros).*
-        """)
-
-    st.write("")
-    # 2. Alertas Inteligentes de Seguridad Financiera
+    # 2. Alertas Inteligentes de Seguridad Financiera (Ancho Completo)
     if calc_results["fue_ajustado"]:
         if calc_results["saldo_disponible"] <= 0:
             st.error(
@@ -115,236 +107,270 @@ def render_dashboard(p: dict, calc_results: dict):
                 f"Límite Seguro de Compra: **{format_currency(calc_results['limite_real'])}**."
             )
 
-    # 3. Semáforo y Barra de Progreso Visual
-    st.markdown("### 🚦 Semáforo de Consumo Presupuestario")
+    # 3. Diseño Grid: Dos Columnas Principales
+    col_semaforos, col_desglose = st.columns([11, 9], gap="large")
 
-    consumo_pct = calc_results["consumo_pct"]
-    total_compras = calc_results["total_compras"]
-    limite_real = calc_results["limite_real"]
-    semaforo = obtener_estado_semaforo(consumo_pct)
+    with col_semaforos:
+        st.markdown("### 🚦 Semáforo de Consumo Presupuestario")
 
-    nombre_mes_actual = f"{get_month_name(p['mes'])} {p['ano']}"
-    libre_actual = limite_real - total_compras
-    if libre_actual >= 0:
-        texto_libre_actual = f" (<b>{format_currency(libre_actual)}</b> libre)"
-    else:
-        texto_libre_actual = f" (<b>{format_currency(abs(libre_actual))}</b> excedido ⚠️)"
+        consumo_pct = calc_results["consumo_pct"]
+        total_compras = calc_results["total_compras"]
+        limite_real = calc_results["limite_real"]
+        semaforo = obtener_estado_semaforo(consumo_pct)
 
-    # Barra 1: Compras de este Mes (Compras hechas en este período)
-    st.markdown(
-        f"""
-        <div class="progress-container">
-            <div class="progress-header">
-                <span class="progress-title">🚦 Compras de <b>{nombre_mes_actual}</b> (Hechas este mes): <b>{format_currency(total_compras)}</b> de un límite de <b>{format_currency(limite_real)}</b>{texto_libre_actual}</span>
-                <span class="progress-percentage" style="color: {semaforo['hex']};">{consumo_pct:.1f}% Consumido</span>
-            </div>
-            <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; height: 16px; width: 100%; overflow: hidden;">
-                <div style="background-color: {semaforo['hex']}; width: {min(consumo_pct, 100)}%; height: 100%; border-radius: 10px; transition: width 0.5s ease-in-out;"></div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        nombre_mes_actual = f"{get_month_name(p['mes'])} {p['ano']}"
+        libre_actual = limite_real - total_compras
+        if libre_actual >= 0:
+            texto_libre_actual = f" (<b>{format_currency(libre_actual)}</b> libre)"
+        else:
+            texto_libre_actual = f" (<b>{format_currency(abs(libre_actual))}</b> excedido ⚠️)"
 
-    mensaje_alerta = f"**Estado Compras del Mes: {semaforo['emoji']} {semaforo['color']}** - {semaforo['mensaje']}"
-    if semaforo["status"] == "success":
-        st.success(mensaje_alerta)
-    elif semaforo["status"] == "warning":
-        st.warning(mensaje_alerta)
-    elif semaforo["status"] == "error":
-        st.error(mensaje_alerta)
+        # Barra 2: Pagos del Mes Actual (Contado + Deudas Heredadas)
+        util_data = calc_results.get("util_modalidad", {})
+        total_pagos = util_data.get("egreso_real_mes", 0.0)
+        consumo_pagos_pct = 0.0
+        if limite_real > 0:
+            consumo_pagos_pct = (total_pagos / limite_real) * 100.0
+        elif total_pagos > 0:
+            consumo_pagos_pct = 100.0
+            
+        semaforo_pagos = obtener_estado_semaforo(consumo_pagos_pct)
+        libre_pagos = limite_real - total_pagos
+        if libre_pagos >= 0:
+            texto_libre_pagos = f" (<b>{format_currency(libre_pagos)}</b> libre)"
+        else:
+            texto_libre_pagos = f" (<b>{format_currency(abs(libre_pagos))}</b> excedido ⚠️)"
 
-    # Barra 2: Pagos del Mes Actual (Contado + Deudas Heredadas)
-    util_data = calc_results.get("util_modalidad", {})
-    total_pagos = util_data.get("egreso_real_mes", 0.0)
-    consumo_pagos_pct = 0.0
-    if limite_real > 0:
-        consumo_pagos_pct = (total_pagos / limite_real) * 100.0
-    elif total_pagos > 0:
-        consumo_pagos_pct = 100.0
-        
-    semaforo_pagos = obtener_estado_semaforo(consumo_pagos_pct)
-    libre_pagos = limite_real - total_pagos
-    if libre_pagos >= 0:
-        texto_libre_pagos = f" (<b>{format_currency(libre_pagos)}</b> libre)"
-    else:
-        texto_libre_pagos = f" (<b>{format_currency(abs(libre_pagos))}</b> excedido ⚠️)"
-        
-    st.markdown(
-        f"""
-        <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); margin-top: 10px; padding: 12px; border-radius: 5px; background-color: rgba(255,255,255,0.02);">
-            <div class="progress-header">
-                <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">💵 Pagos de <b>{nombre_mes_actual}</b> (Contado + Deudas Heredadas): <b>{format_currency(total_pagos)}</b> de un límite de <b>{format_currency(limite_real)}</b>{texto_libre_pagos}</span>
-                <span class="progress-percentage" style="color: {semaforo_pagos['hex']}; font-weight: 600; font-size: 14px;">{consumo_pagos_pct:.1f}% Pagado</span>
-            </div>
-            <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; height: 12px; width: 100%; overflow: hidden;">
-                <div style="background-color: {semaforo_pagos['hex']}; width: {min(consumo_pagos_pct, 100)}%; height: 100%; border-radius: 10px; transition: width 0.5s ease-in-out;"></div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        # Mapeo del estado de alerta para estilo CSS
+        alert_class = "alert-info"
+        alert_style = ""
+        if semaforo["status"] == "success":
+            alert_style = "background: rgba(9, 171, 59, 0.1); border: 1px solid rgba(9, 171, 59, 0.2); color: #09AB3B;"
+        elif semaforo["status"] == "warning":
+            alert_class = "alert-warning"
+        elif semaforo["status"] == "error":
+            alert_class = "alert-danger"
 
-    # 3b. Barras predictivas de compromisos futuros
-    render_barras_predictivas(calc_results)
+        texto_alerta = f"<b>Estado Compras del Mes: {semaforo['emoji']} {semaforo['color']}</b> — {semaforo['mensaje']}"
 
-    # Notificación de madurez del historial (Fase 2)
-    madurez = calc_results.get("madurez_historial")
-    if madurez and madurez.get("puede_usar_promedio"):
-        n = madurez["periodos_cerrados"]
-        st.info(
-            f"💡 **¡Ya tienes {n} meses de historial!** Las proyecciones de pagos futuros "
-            f"pueden ser más precisas usando un promedio histórico de ventas en lugar de la "
-            f"extrapolación de Caja Diaria. Esta función estará disponible próximamente."
-        )
-
-    # 4. Panel de Desglose de Utilidad Real
-    st.write("---")
-    st.markdown("### 💰 Desglose de Utilidad Real del Mes")
-    st.caption(
-        "Muestra exactamente qué salidas de efectivo afectan la utilidad de este período "
-        "y qué compromisos quedan pendientes para meses futuros."
-    )
-
-    util_data = calc_results.get("util_modalidad", {})
-    if not util_data:
-        st.info("Sin datos de modalidad disponibles.")
-        return
-
-    # Fila 1: Egresos que SÍ impactan este mes
-    st.markdown("#### ✅ Egresos que Impactan ESTE Mes")
-    col_a, col_b, col_c, col_d = st.columns(4)
-
-    with col_a:
+        # Card 1: Operación en Curso (Hoy)
         st.markdown(
-            render_kpi_card(
-                "Compras al Contado",
-                format_currency(util_data.get("egreso_contado", 0)),
-                "💵",
-                "Efectivo que ya salió de la cuenta bancaria este mes."
-            ),
-            unsafe_allow_html=True
-        )
-    with col_b:
-        st.markdown(
-            render_kpi_card(
-                "Créditos a Vencer este Mes",
-                format_currency(util_data.get("egreso_credito_mes_actual", 0)),
-                "📅",
-                "Compras a crédito cuya fecha de pago cae dentro de este mismo mes."
-            ),
-            unsafe_allow_html=True
-        )
-    with col_c:
-        st.markdown(
-            render_kpi_card(
-                "Deudas Heredadas",
-                format_currency(util_data.get("egreso_deudas_heredadas", 0)),
-                "📥",
-                "Créditos de meses anteriores que vencen en este período."
-            ),
-            unsafe_allow_html=True
-        )
-    with col_d:
-        egreso_real = util_data.get("egreso_real_mes", 0)
-        st.markdown(
-            render_kpi_card(
-                "Total Egreso Real",
-                format_currency(egreso_real),
-                "🏦",
-                "Suma total de todos los egresos que impactan la utilidad de este mes."
-            ),
+            f"""
+            <div class="dashboard-card">
+                <h4 style="margin-top:0; margin-bottom:15px; color:#FFFFFF; font-size:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
+                    🎯 Operación en Curso ({nombre_mes_actual})
+                </h4>
+                
+                <!-- Barra 1: Compras -->
+                <div class="progress-container" style="margin-top: 5px; margin-bottom: 12px;">
+                    <div class="progress-header">
+                        <span class="progress-title">🚦 Compras: <b>{format_currency(total_compras)}</b> de <b>{format_currency(limite_real)}</b>{texto_libre_actual}</span>
+                        <span class="progress-percentage" style="color: {semaforo['hex']};">{consumo_pct:.1f}% Consumido</span>
+                    </div>
+                    <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; height: 16px; width: 100%; overflow: hidden;">
+                        <div style="background-color: {semaforo['hex']}; width: {min(consumo_pct, 100)}%; height: 100%; border-radius: 10px; transition: width 0.5s ease-in-out;"></div>
+                    </div>
+                </div>
+                
+                <!-- Alerta de Semáforo -->
+                <div class="alert-box {alert_class}" style="{alert_style} margin-bottom: 18px;">
+                    {semaforo['emoji']} {texto_alerta}
+                </div>
+                
+                <!-- Barra 2: Pagos -->
+                <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); margin-bottom: 5px; padding: 12px; border-radius: 8px; background-color: rgba(255,255,255,0.02);">
+                    <div class="progress-header" style="margin-bottom: 8px;">
+                        <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">💵 Pagos de este Mes (Contado + Deudas Heredadas): <b>{format_currency(total_pagos)}</b> de <b>{format_currency(limite_real)}</b>{texto_libre_pagos}</span>
+                        <span class="progress-percentage" style="color: {semaforo_pagos['hex']}; font-weight: 600; font-size: 14px;">{consumo_pagos_pct:.1f}% Pagado</span>
+                    </div>
+                    <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; height: 12px; width: 100%; overflow: hidden;">
+                        <div style="background-color: {semaforo_pagos['hex']}; width: {min(consumo_pagos_pct, 100)}%; height: 100%; border-radius: 10px; transition: width 0.5s ease-in-out;"></div>
+                    </div>
+                </div>
+            </div>
+            """,
             unsafe_allow_html=True
         )
 
-    # Detalle de deudas heredadas (si existen)
-    deudas_heredadas = util_data.get("deudas_heredadas", [])
-    if deudas_heredadas:
-        with st.expander("📥 Ver detalle de Deudas Heredadas de meses anteriores", expanded=False):
-            for d in deudas_heredadas:
-                from config import get_month_name as gmn
-                origen = f"{gmn(d.get('origen_mes', 0))} {d.get('origen_ano', '')}"
-                veces = d.get("veces_postergada", 0)
-                postponed_label = f" ⚠️ Postergada {veces}x" if veces > 0 else ""
+        # Card 2: Planificación de Pagos Futuros (Predictivos)
+        render_barras_predictivas(calc_results)
+
+        # Historial madurez info box
+        madurez = calc_results.get("madurez_historial")
+        if madurez and madurez.get("puede_usar_promedio"):
+            n = madurez["periodos_cerrados"]
+            st.info(
+                f"💡 **¡Ya tienes {n} meses de historial!** Las proyecciones de pagos futuros "
+                f"pueden ser más precisas usando un promedio histórico de ventas en lugar de la "
+                f"extrapolación de Caja Diaria. Esta función estará disponible próximamente."
+            )
+
+    with col_desglose:
+        st.markdown("### 💰 Análisis y Desglose")
+
+        util_data = calc_results.get("util_modalidad", {})
+        if not util_data:
+            st.info("Sin datos de modalidad disponibles.")
+        else:
+            # Desglose de egresos en cuadrícula 2x2
+            st.markdown("#### ✅ Egresos que Impactan ESTE Mes")
+            
+            grid_row1_col1, grid_row1_col2 = st.columns(2)
+            with grid_row1_col1:
                 st.markdown(
-                    f"• **{d.get('proveedor', '?')}** — {format_currency(d.get('monto', 0))} "
-                    f"({d.get('modalidad_original', '?')} de {origen}){postponed_label}"
+                    render_kpi_card(
+                        "Compras al Contado",
+                        format_currency(util_data.get("egreso_contado", 0)),
+                        "💵",
+                        "Efectivo que ya salió de la cuenta bancaria este mes."
+                    ),
+                    unsafe_allow_html=True
+                )
+            with grid_row1_col2:
+                st.markdown(
+                    render_kpi_card(
+                        "Créditos a Vencer",
+                        format_currency(util_data.get("egreso_credito_mes_actual", 0)),
+                        "📅",
+                        "Compras a crédito cuya fecha de pago cae dentro de este mismo mes."
+                    ),
+                    unsafe_allow_html=True
                 )
 
-    st.write("")
+            grid_row2_col1, grid_row2_col2 = st.columns(2)
+            with grid_row2_col1:
+                st.markdown(
+                    render_kpi_card(
+                        "Deudas Heredadas",
+                        format_currency(util_data.get("egreso_deudas_heredadas", 0)),
+                        "📥",
+                        "Créditos de meses anteriores que vencen en este período."
+                    ),
+                    unsafe_allow_html=True
+                )
+            with grid_row2_col2:
+                egreso_real = util_data.get("egreso_real_mes", 0)
+                st.markdown(
+                    render_kpi_card(
+                        "Total Egreso Real",
+                        format_currency(egreso_real),
+                        "🏦",
+                        "Suma total de todos los egresos que impactan la utilidad de este mes."
+                    ),
+                    unsafe_allow_html=True
+                )
 
-    # Fila 2: Compromisos Futuros (NO impactan utilidad actual)
-    compromisos = util_data.get("compromisos_total_futuro", 0)
-    if compromisos > 0:
-        st.markdown("#### ⏳ Compromisos Futuros *(no restan a la utilidad de este mes)*")
+            # Detalle de deudas heredadas expander
+            deudas_heredadas = util_data.get("deudas_heredadas", [])
+            if deudas_heredadas:
+                with st.expander("📥 Ver detalle de Deudas Heredadas", expanded=False):
+                    for d in deudas_heredadas:
+                        from config import get_month_name as gmn
+                        origen = f"{gmn(d.get('origen_mes', 0))} {d.get('origen_ano', '')}"
+                        veces = d.get("veces_postergada", 0)
+                        postponed_label = f" ⚠️ Postergada {veces}x" if veces > 0 else ""
+                        st.markdown(
+                            f"• **{d.get('proveedor', '?')}** — {format_currency(d.get('monto', 0))} "
+                            f"({d.get('modalidad_original', '?')} de {origen}){postponed_label}"
+                        )
 
-        col_f1, col_f2 = st.columns(2)
-        mes_sig = p["mes"] + 1
-        ano_sig = p["ano"]
-        if mes_sig > 12:
-            mes_sig = 1
-            ano_sig += 1
+            # Expander explicativo de fórmula
+            with st.expander("💡 ¿Cómo se calcula la Utilidad Real?", expanded=False):
+                st.markdown(f"""
+                Para darte un número exacto y real, solo restamos el dinero que **efectivamente salió de tu bolsa este mes**.
+                
+                **Fórmula:**
+                * **Ventas:** `+ {format_currency(p['ventas'])}`
+                * **Gastos Fijos:** `- {format_currency(calc_results['gastos_totales'])}`
+                * **Compras al Contado:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_contado', 0))}`
+                * **Créditos a Vencer este Mes:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_credito_mes_actual', 0))}`
+                * **Deudas Heredadas:** `- {format_currency(calc_results.get('util_modalidad', {}).get('egreso_deudas_heredadas', 0))}`
+                ---
+                * **= Utilidad Real:** `{format_currency(util)}`
+                
+                *(Las compras a crédito a 30, 45 o 60 días no se restan aquí porque las pagarás en meses futuros).*
+                """)
 
-        with col_f1:
-            st.markdown(
-                render_kpi_card(
-                    f"Vencen en {get_month_name(mes_sig)} {ano_sig}",
-                    format_currency(util_data.get("compromisos_mes_siguiente", 0)),
-                    "🗓️",
-                    f"Créditos cuya fecha de pago cae en el mes de {get_month_name(mes_sig)}."
-                ),
-                unsafe_allow_html=True
-            )
-        with col_f2:
-            st.markdown(
-                render_kpi_card(
-                    "Vencen en Mes+2 o después",
-                    format_currency(util_data.get("compromisos_mes_2_plus", 0)),
-                    "🗓️",
-                    "Créditos con vencimiento en dos o más meses."
-                ),
-                unsafe_allow_html=True
-            )
+            # Compromisos futuros (si hay deudas futuras a mediano plazo)
+            compromisos = util_data.get("compromisos_total_futuro", 0)
+            if compromisos > 0:
+                st.markdown("#### ⏳ Compromisos Futuros *(fuera de este mes)*")
+                
+                col_f1, col_f2 = st.columns(2)
+                mes_sig = p["mes"] + 1
+                ano_sig = p["ano"]
+                if mes_sig > 12:
+                    mes_sig = 1
+                    ano_sig += 1
 
-        # Detalle de compromisos futuros
-        detalle = util_data.get("detalle_compromisos_futuros", [])
-        if detalle:
-            with st.expander("📋 Ver detalle de todos los compromisos futuros", expanded=False):
-                for comp in sorted(detalle, key=lambda x: (x["ano_vencimiento"], x["mes_vencimiento"])):
-                    mes_v = get_month_name(comp["mes_vencimiento"])
-                    ano_v = comp["ano_vencimiento"]
+                with col_f1:
                     st.markdown(
-                        f"• **{comp['proveedor']}** — {format_currency(comp['monto'])} "
-                        f"({comp['modalidad']}, compra {comp['fecha_compra']}) → "
-                        f"**Vence: {mes_v} {ano_v}**"
+                        render_kpi_card(
+                            f"Vencen en {get_month_name(mes_sig)}",
+                            format_currency(util_data.get("compromisos_mes_siguiente", 0)),
+                            "🗓️",
+                            f"Créditos cuya fecha de pago cae en el mes de {get_month_name(mes_sig)}."
+                        ),
+                        unsafe_allow_html=True
                     )
-    else:
-        st.info("✅ No hay compromisos de crédito pendientes para meses futuros en este período.")
+                with col_f2:
+                    st.markdown(
+                        render_kpi_card(
+                            "Vencen en Mes+2 o más",
+                            format_currency(util_data.get("compromisos_mes_2_plus", 0)),
+                            "🗓️",
+                            "Créditos con vencimiento en dos o más meses."
+                        ),
+                        unsafe_allow_html=True
+                    )
+
+                # Detalle de compromisos futuros
+                detalle = util_data.get("detalle_compromisos_futuros", [])
+                if detalle:
+                    with st.expander("📋 Ver detalle de compromisos futuros", expanded=False):
+                        for comp in sorted(detalle, key=lambda x: (x["ano_vencimiento"], x["mes_vencimiento"])):
+                            mes_v = get_month_name(comp["mes_vencimiento"])
+                            ano_v = comp["ano_vencimiento"]
+                            st.markdown(
+                                f"• **{comp['proveedor']}** — {format_currency(comp['monto'])} "
+                                f"({comp['modalidad']}, compra {comp['fecha_compra']}) → "
+                                f"**Vence: {mes_v} {ano_v}**"
+                            )
+            else:
+                st.info("✅ No hay compromisos de crédito pendientes para meses futuros en este período.")
 
 
 def render_barras_predictivas(calc_results: dict):
-    """Renderiza las barras de compromisos futuros para Mes+1 y Mes+2."""
+    """Renderiza las barras de compromisos futuros para Mes+1 y Mes+2 en formato de tarjeta premium."""
     proyeccion = calc_results.get("proyeccion_futura")
     if not proyeccion:
         return
-    
-    st.markdown("### 📅 Compromisos de Pago Futuros")
     
     metodo = proyeccion["metodo_proyeccion"]
     ventas_proy = proyeccion["ventas_proyectadas"]
     
     # Nota informativa sobre cómo se calculó el límite
     if metodo == "caja_diaria":
-        st.caption(
-            f"ℹ️ Límites proyectados basados en extrapolación de Caja Diaria "
+        caption_text = (
+            f"Límites proyectados basados en extrapolación de Caja Diaria "
             f"de este mes ({format_currency(ventas_proy)} estimados de venta)."
         )
     else:
-        st.caption(
-            f"ℹ️ Límites basados en el campo Ventas del sidebar ({format_currency(ventas_proy)} base) "
+        caption_text = (
+            f"Límites basados en el campo Ventas del sidebar ({format_currency(ventas_proy)} base) "
             f"debido a que no hay registros en la Caja Diaria para extrapolar."
         )
         
+    html = f"""
+    <div class="dashboard-card">
+        <h4 style="margin-top:0; margin-bottom:5px; color:#FFFFFF; font-size:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
+            📅 Compromisos de Pago Futuros (Proyección)
+        </h4>
+        <p style="color: #8C9CAE; font-size: 12px; margin-top: 0; margin-bottom: 15px;">
+            ℹ️ {caption_text}
+        </p>
+    """
+    
     for key in ["mes_1", "mes_2"]:
         data = proyeccion[key]
         semaforo = data["semaforo"]
@@ -357,10 +383,9 @@ def render_barras_predictivas(calc_results: dict):
         else:
             texto_libre = f" (<b>{format_currency(abs(libre))}</b> excedido ⚠️)"
         
-        # Barra HTML con borde punteado para diferenciarla de la actual
-        st.markdown(f"""
+        html += f"""
         <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); 
-             margin-top: 10px; padding: 12px; border-radius: 5px; background-color: rgba(255,255,255,0.02);">
+             margin-top: 10px; margin-bottom: 10px; padding: 12px; border-radius: 8px; background-color: rgba(255,255,255,0.02);">
             <div class="progress-header" style="margin-bottom: 8px;">
                 <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">
                     📅 Pagos de <b>{data['nombre']}</b>: 
@@ -378,13 +403,23 @@ def render_barras_predictivas(calc_results: dict):
                      transition: width 0.5s ease-in-out;"></div>
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """
         
-        # Expander con detalle de proveedores
+        # Expander HTML con detalle de proveedores (usando <details>)
         if data["detalle"]:
-            with st.expander(f"📋 Ver detalle de compromisos para {data['nombre']}", expanded=False):
-                for d in data["detalle"]:
-                    st.markdown(
-                        f"- **{d['proveedor']}** — {format_currency(d['monto'])} "
-                        f"({d.get('modalidad', '?')})"
-                    )
+            html += f"""
+            <details style="margin-top: 5px; margin-bottom: 12px; margin-left: 5px;">
+                <summary style="cursor: pointer; font-size: 13px; color: #8C9CAE; font-weight: 500; outline: none; user-select: none;">
+                    📋 Ver detalle de compromisos para {data['nombre']}
+                </summary>
+                <div style="padding: 8px 12px; margin-top: 5px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 13px; color: #E2E8F0;">
+            """
+            for d in data["detalle"]:
+                html += f"<div style='margin-bottom: 4px;'>• <b>{d['proveedor']}</b> — {format_currency(d['monto'])} ({d.get('modalidad', '?')})</div>"
+            html += """
+                </div>
+            </details>
+            """
+            
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)

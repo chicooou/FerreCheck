@@ -127,3 +127,53 @@ html, body, [class*="css"], .stText, .stMarkdown {
     border-radius: 12px;
     overflow: hidden;
 }
+
+/* Contenedor tipo Tarjeta Dashboard Premium */
+.dashboard-card {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Badges de Estrategia Activa */
+.strategy-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 20px;
+    letter-spacing: 0.3px;
+    margin-left: 10px;
+}
+.strategy-badge-reducir {
+    background: rgba(255, 75, 75, 0.15);
+    border: 1px solid rgba(255, 75, 75, 0.3);
+    color: #FF4B4B;
+}
+.strategy-badge-balance {
+    background: rgba(0, 192, 242, 0.15);
+    border: 1px solid rgba(0, 192, 242, 0.3);
+    color: #00C0F2;
+}
+.strategy-badge-aumentar {
+    background: rgba(9, 171, 59, 0.15);
+    border: 1px solid rgba(9, 171, 59, 0.3);
+    color: #09AB3B;
+}
+
+/* Hover suave en contenedores de semáforo */
+.progress-container {
+    transition: all 0.25s ease-in-out;
+}
+.progress-container:hover {
+    background: rgba(255, 255, 255, 0.07) !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+}
