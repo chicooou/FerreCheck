@@ -311,6 +311,13 @@ def render_barras_predictivas(calc_results: dict):
         semaforo = data["semaforo"]
         pct = data["consumo_pct"]
         
+        # Calcular saldo libre proyectado
+        libre = data["limite_proyectado"] - data["comprometido"]
+        if libre >= 0:
+            texto_libre = f" (<b>{format_currency(libre)}</b> libre)"
+        else:
+            texto_libre = f" (<b>{format_currency(abs(libre))}</b> excedido ⚠️)"
+        
         # Barra HTML con borde punteado para diferenciarla de la actual
         st.markdown(f"""
         <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); 
@@ -320,6 +327,7 @@ def render_barras_predictivas(calc_results: dict):
                     📅 Compromisos para <b>{data['nombre']}</b>: 
                     <b>{format_currency(data['comprometido'])}</b> comprometidos 
                     de un límite proyectado de <b>{format_currency(data['limite_proyectado'])}</b>
+                    {texto_libre}
                 </span>
                 <span class="progress-percentage" style="color: {semaforo['hex']}; font-weight: 600; font-size: 14px;">
                     {pct:.1f}% Comprometido
