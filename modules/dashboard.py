@@ -128,9 +128,9 @@ def render_dashboard(p: dict, calc_results: dict):
         nombre_mes_actual = f"{get_month_name(p['mes'])} {p['ano']}"
         libre_actual = limite_real - total_compras
         if libre_actual >= 0:
-            texto_libre_actual = f" (<b>{format_currency(libre_actual)}</b> libre)"
+            texto_libre_actual_simple = f"{format_currency(libre_actual)} libre"
         else:
-            texto_libre_actual = f" (<b>{format_currency(abs(libre_actual))}</b> excedido ⚠️)"
+            texto_libre_actual_simple = f"{format_currency(abs(libre_actual))} excedido ⚠️"
 
         # Barra 2: Pagos del Mes Actual (Contado + Deudas Heredadas)
         util_data = calc_results.get("util_modalidad", {})
@@ -144,54 +144,47 @@ def render_dashboard(p: dict, calc_results: dict):
         semaforo_pagos = obtener_estado_semaforo(consumo_pagos_pct)
         libre_pagos = limite_real - total_pagos
         if libre_pagos >= 0:
-            texto_libre_pagos = f" (<b>{format_currency(libre_pagos)}</b> libre)"
+            texto_libre_pagos_simple = f"{format_currency(libre_pagos)} libre"
         else:
-            texto_libre_pagos = f" (<b>{format_currency(abs(libre_pagos))}</b> excedido ⚠️)"
-
-        # Mapeo del estado de alerta para estilo CSS
-        alert_class = "alert-info"
-        alert_style = ""
-        if semaforo["status"] == "success":
-            alert_style = "background: rgba(9, 171, 59, 0.1); border: 1px solid rgba(9, 171, 59, 0.2); color: #09AB3B;"
-        elif semaforo["status"] == "warning":
-            alert_class = "alert-warning"
-        elif semaforo["status"] == "error":
-            alert_class = "alert-danger"
-
-        texto_alerta = f"<b>Estado Compras del Mes: {semaforo['emoji']} {semaforo['color']}</b> — {semaforo['mensaje']}"
+            texto_libre_pagos_simple = f"{format_currency(abs(libre_pagos))} excedido ⚠️"
 
         # Card 1: Operación en Curso (Hoy)
         st.markdown(
             clean_html(f"""
-            <div class="dashboard-card">
-                <h4 style="margin-top:0; margin-bottom:15px; color:#FFFFFF; font-size:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
-                    🎯 Operación en Curso ({nombre_mes_actual})
+            <div class="dashboard-card" style="padding: 16px;">
+                <h4 style="margin-top:0; margin-bottom:12px; color:#FFFFFF; font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px;">
+                    🎯 Operación del Mes ({nombre_mes_actual})
                 </h4>
                 
                 <!-- Barra 1: Compras -->
-                <div class="progress-container" style="margin-top: 5px; margin-bottom: 12px;">
-                    <div class="progress-header">
-                        <span class="progress-title">🚦 Compras: <b>{format_currency(total_compras)}</b> de <b>{format_currency(limite_real)}</b>{texto_libre_actual}</span>
-                        <span class="progress-percentage" style="color: {semaforo['hex']};">{consumo_pct:.1f}% Consumido</span>
+                <div style="margin-bottom: 12px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:4px;">
+                        <span style="color:#A0AEC0; font-weight:500;">🚦 Compras Realizadas ({semaforo['emoji']} {semaforo['color']})</span>
+                        <span style="color:{semaforo['hex']}; font-weight:600;">{consumo_pct:.1f}%</span>
                     </div>
-                    <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; height: 16px; width: 100%; overflow: hidden;">
-                        <div style="background-color: {semaforo['hex']}; width: {min(consumo_pct, 100)}%; height: 100%; border-radius: 10px; transition: width 0.5s ease-in-out;"></div>
+                    <div style="background-color: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
+                        <div style="background-color: {semaforo['hex']}; width: {min(consumo_pct, 100)}%; height: 100%; border-radius: 6px;"></div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; font-size:11px; color:#8C9CAE;">
+                        <span>{format_currency(total_compras)} de {format_currency(limite_real)}</span>
+                        <span><b>{texto_libre_actual_simple}</b></span>
                     </div>
                 </div>
                 
-                <!-- Alerta de Semáforo -->
-                <div class="alert-box {alert_class}" style="{alert_style} margin-bottom: 18px;">
-                    {semaforo['emoji']} {texto_alerta}
-                </div>
+                <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 12px 0;">
                 
                 <!-- Barra 2: Pagos -->
-                <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); margin-bottom: 5px; padding: 12px; border-radius: 8px; background-color: rgba(255,255,255,0.02);">
-                    <div class="progress-header" style="margin-bottom: 8px;">
-                        <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">💵 Pagos de este Mes (Contado + Deudas Heredadas): <b>{format_currency(total_pagos)}</b> de <b>{format_currency(limite_real)}</b>{texto_libre_pagos}</span>
-                        <span class="progress-percentage" style="color: {semaforo_pagos['hex']}; font-weight: 600; font-size: 14px;">{consumo_pagos_pct:.1f}% Pagado</span>
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:4px;">
+                        <span style="color:#A0AEC0; font-weight:500;">💵 Pagos de este Mes (Contado + Deudas)</span>
+                        <span style="color:{semaforo_pagos['hex']}; font-weight:600;">{consumo_pagos_pct:.1f}%</span>
                     </div>
-                    <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; height: 12px; width: 100%; overflow: hidden;">
-                        <div style="background-color: {semaforo_pagos['hex']}; width: {min(consumo_pagos_pct, 100)}%; height: 100%; border-radius: 10px; transition: width 0.5s ease-in-out;"></div>
+                    <div style="background-color: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
+                        <div style="background-color: {semaforo_pagos['hex']}; width: {min(consumo_pagos_pct, 100)}%; height: 100%; border-radius: 6px;"></div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; font-size:11px; color:#8C9CAE;">
+                        <span>{format_currency(total_pagos)} de {format_currency(limite_real)}</span>
+                        <span><b>{texto_libre_pagos_simple}</b></span>
                     </div>
                 </div>
             </div>
@@ -348,7 +341,7 @@ def render_dashboard(p: dict, calc_results: dict):
 
 
 def render_barras_predictivas(calc_results: dict):
-    """Renderiza las barras de compromisos futuros para Mes+1 y Mes+2 en formato de tarjeta premium."""
+    """Renderiza las barras de compromisos futuros para Mes+1 y Mes+2 en formato de tarjeta premium compacta."""
     proyeccion = calc_results.get("proyeccion_futura")
     if not proyeccion:
         return
@@ -356,29 +349,25 @@ def render_barras_predictivas(calc_results: dict):
     metodo = proyeccion["metodo_proyeccion"]
     ventas_proy = proyeccion["ventas_proyectadas"]
     
-    # Nota informativa sobre cómo se calculó el límite
+    # Nota informativa corta sobre cómo se calculó el límite
     if metodo == "caja_diaria":
         caption_text = (
-            f"Límites proyectados basados en extrapolación de Caja Diaria "
-            f"de este mes ({format_currency(ventas_proy)} estimados de venta)."
+            f"Límites basados en extrapolación de Caja Diaria ({format_currency(ventas_proy)} est. ventas)."
         )
     else:
         caption_text = (
-            f"Límites basados en el campo Ventas del sidebar ({format_currency(ventas_proy)} base) "
-            f"debido a que no hay registros en la Caja Diaria para extrapolar."
+            f"Límites basados en Ventas del sidebar ({format_currency(ventas_proy)} base)."
         )
         
     html = f"""
-    <div class="dashboard-card">
-        <h4 style="margin-top:0; margin-bottom:5px; color:#FFFFFF; font-size:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
-            📅 Compromisos de Pago Futuros (Proyección)
+    <div class="dashboard-card" style="padding: 16px;">
+        <h4 style="margin-top:0; margin-bottom:12px; color:#FFFFFF; font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px;">
+            📅 Planificación de Pagos (Futuro)
         </h4>
-        <p style="color: #8C9CAE; font-size: 12px; margin-top: 0; margin-bottom: 15px;">
-            ℹ️ {caption_text}
-        </p>
     """
     
-    for key in ["mes_1", "mes_2"]:
+    keys = ["mes_1", "mes_2"]
+    for i, key in enumerate(keys):
         data = proyeccion[key]
         semaforo = data["semaforo"]
         pct = data["consumo_pct"]
@@ -386,47 +375,53 @@ def render_barras_predictivas(calc_results: dict):
         # Calcular saldo libre proyectado
         libre = data["limite_proyectado"] - data["comprometido"]
         if libre >= 0:
-            texto_libre = f" (<b>{format_currency(libre)}</b> libre)"
+            texto_libre = f"{format_currency(libre)} libre"
         else:
-            texto_libre = f" (<b>{format_currency(abs(libre))}</b> excedido ⚠️)"
-        
-        html += f"""
-        <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); 
-             margin-top: 10px; margin-bottom: 10px; padding: 12px; border-radius: 8px; background-color: rgba(255,255,255,0.02);">
-            <div class="progress-header" style="margin-bottom: 8px;">
-                <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">
-                    📅 Pagos de <b>{data['nombre']}</b>: 
-                    <b>{format_currency(data['comprometido'])}</b> de un límite proyectado de <b>{format_currency(data['limite_proyectado'])}</b>
-                    {texto_libre}
-                </span>
-                <span class="progress-percentage" style="color: {semaforo['hex']}; font-weight: 600; font-size: 14px;">
-                    {pct:.1f}% Pagado
-                </span>
-            </div>
-            <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; 
-                        height: 12px; width: 100%; overflow: hidden;">
-                <div style="background-color: {semaforo['hex']}; 
-                     width: {min(pct, 100)}%; height: 100%; border-radius: 10px; 
-                     transition: width 0.5s ease-in-out;"></div>
-            </div>
-        </div>
-        """
-        
+            texto_libre = f"{format_currency(abs(libre))} excedido ⚠️"
+            
+        details_html = ""
         # Expander HTML con detalle de proveedores (usando <details>)
         if data["detalle"]:
-            html += f"""
-            <details style="margin-top: 5px; margin-bottom: 12px; margin-left: 5px;">
-                <summary style="cursor: pointer; font-size: 13px; color: #8C9CAE; font-weight: 500; outline: none; user-select: none;">
+            details_html = f"""
+            <details style="margin-top: 6px; margin-bottom: 6px; margin-left: 2px;">
+                <summary style="cursor: pointer; font-size: 12px; color: #8C9CAE; font-weight: 500; outline: none; user-select: none;">
                     📋 Ver detalle de compromisos para {data['nombre']}
                 </summary>
-                <div style="padding: 8px 12px; margin-top: 5px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 13px; color: #E2E8F0;">
+                <div style="padding: 8px 12px; margin-top: 5px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 12px; color: #E2E8F0;">
             """
             for d in data["detalle"]:
-                html += f"<div style='margin-bottom: 4px;'>• <b>{d['proveedor']}</b> — {format_currency(d['monto'])} ({d.get('modalidad', '?')})</div>"
-            html += """
+                details_html += f"<div style='margin-bottom: 4px;'>• <b>{d['proveedor']}</b> — {format_currency(d['monto'])} ({d.get('modalidad', '?')})</div>"
+            details_html += """
                 </div>
             </details>
             """
             
-    html += "</div>"
+        html += f"""
+        <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:4px;">
+                <span style="color:#A0AEC0; font-weight:500;">📅 Pagos {data['nombre']}</span>
+                <span style="color:{semaforo['hex']}; font-weight:600;">{pct:.1f}% Pagado</span>
+            </div>
+            <div style="background-color: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
+                <div style="background-color: {semaforo['hex']}; width: {min(pct, 100)}%; height: 100%; border-radius: 6px;"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:11px; color:#8C9CAE; margin-bottom: 4px;">
+                <span>{format_currency(data['comprometido'])} de {format_currency(data['limite_proyectado'])}</span>
+                <span><b>{texto_libre}</b></span>
+            </div>
+            {details_html}
+        </div>
+        """
+        
+        # Divider between mes_1 and mes_2
+        if i < len(keys) - 1:
+            html += '<hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 12px 0;">'
+            
+    html += f"""
+        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 12px 0 8px 0;">
+        <p style="color: #8C9CAE; font-size: 10px; margin-top: 0; margin-bottom: 0; font-style: italic;">
+            * {caption_text}
+        </p>
+    </div>
+    """
     st.markdown(clean_html(html), unsafe_allow_html=True)
