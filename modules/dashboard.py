@@ -123,11 +123,18 @@ def render_dashboard(p: dict, calc_results: dict):
     limite_real = calc_results["limite_real"]
     semaforo = obtener_estado_semaforo(consumo_pct)
 
+    nombre_mes_actual = f"{get_month_name(p['mes'])} {p['ano']}"
+    libre_actual = limite_real - total_compras
+    if libre_actual >= 0:
+        texto_libre_actual = f" (<b>{format_currency(libre_actual)}</b> libre)"
+    else:
+        texto_libre_actual = f" (<b>{format_currency(abs(libre_actual))}</b> excedido ⚠️)"
+
     st.markdown(
         f"""
         <div class="progress-container">
             <div class="progress-header">
-                <span class="progress-title">Compras del Mes: <b>{format_currency(total_compras)}</b> de un límite de <b>{format_currency(limite_real)}</b></span>
+                <span class="progress-title">💵 Compras al Contado (y Vencimientos de <b>{nombre_mes_actual}</b>): <b>{format_currency(total_compras)}</b> de un límite de <b>{format_currency(limite_real)}</b>{texto_libre_actual}</span>
                 <span class="progress-percentage" style="color: {semaforo['hex']};">{consumo_pct:.1f}% Consumido</span>
             </div>
             <div style="background-color: rgba(255,255,255,0.1); border-radius: 10px; height: 16px; width: 100%; overflow: hidden;">
@@ -318,13 +325,19 @@ def render_barras_predictivas(calc_results: dict):
         else:
             texto_libre = f" (<b>{format_currency(abs(libre))}</b> excedido ⚠️)"
         
+        # Determinar el tipo de compra a crédito recomendada para este vencimiento
+        if key == "mes_1":
+            label_tipo = "Margen para Crédito 30 días"
+        else:
+            label_tipo = "Margen para Crédito 60 días"
+        
         # Barra HTML con borde punteado para diferenciarla de la actual
         st.markdown(f"""
         <div class="progress-container" style="border: 1px dashed rgba(255,255,255,0.15); 
              margin-top: 10px; padding: 12px; border-radius: 5px; background-color: rgba(255,255,255,0.02);">
             <div class="progress-header" style="margin-bottom: 8px;">
                 <span class="progress-title" style="color: #E2E8F0; font-size: 14px;">
-                    📅 Compromisos para <b>{data['nombre']}</b>: 
+                    📅 <b>{label_tipo}</b> (Vence en <b>{data['nombre']}</b>): 
                     <b>{format_currency(data['comprometido'])}</b> comprometidos 
                     de un límite proyectado de <b>{format_currency(data['limite_proyectado'])}</b>
                     {texto_libre}
