@@ -37,7 +37,7 @@ def render_sales_kpis(p: dict):
                 <span style="font-size: 14px; color: #8C9CAE; font-weight: 600; text-transform: uppercase;">
                     📈 Caja Diaria Acumulada ({get_month_name(p['mes'])})
                 </span>
-                <h2 style="margin: 5px 0 0 0; color: #FFFFFF; font-size: 28px; font-weight: 700;">
+                <h2 style="margin: 5px 0 0 0; color: var(--text-color, #FFFFFF); font-size: 28px; font-weight: 700;">
                     {format_currency(total_diario)}
                 </h2>
                 <p style="margin: 5px 0 0 0; font-size: 12px; color: #8C9CAE;">
@@ -55,7 +55,7 @@ def render_sales_kpis(p: dict):
                 <span style="font-size: 14px; color: #8C9CAE; font-weight: 600; text-transform: uppercase;">
                     📅 Ventas del Mes Anterior (Base de Límites)
                 </span>
-                <h2 style="margin: 5px 0 0 0; color: #FFFFFF; font-size: 28px; font-weight: 700;">
+                <h2 style="margin: 5px 0 0 0; color: var(--text-color, #FFFFFF); font-size: 28px; font-weight: 700;">
                     {format_currency(ventas_base)}
                 </h2>
                 <p style="margin: 5px 0 0 0; font-size: 12px; color: #8C9CAE;">

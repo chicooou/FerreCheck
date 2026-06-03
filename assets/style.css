@@ -12,10 +12,10 @@ html, body, [class*="css"], .stText, .stMarkdown {
 
 /* Tarjetas KPI personalizadas */
 .kpi-container {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(128, 128, 128, 0.08);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(128, 128, 128, 0.2);
     border-radius: 16px;
     padding: 20px;
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
@@ -26,7 +26,7 @@ html, body, [class*="css"], .stText, .stMarkdown {
 
 .kpi-container:hover {
     transform: translateY(-4px);
-    border-color: rgba(255, 255, 255, 0.25);
+    border-color: rgba(128, 128, 128, 0.35);
     box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.25);
 }
 
@@ -45,16 +45,16 @@ html, body, [class*="css"], .stText, .stMarkdown {
 .kpi-value {
     font-size: 28px;
     font-weight: 700;
-    color: #FFFFFF;
+    color: var(--text-color, #FFFFFF);
     letter-spacing: -0.5px;
 }
 
 /* Semáforo y Progreso Custom */
 .progress-container {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(128, 128, 128, 0.05);
     border-radius: 12px;
     padding: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(128, 128, 128, 0.12);
     margin: 20px 0;
 }
 
@@ -68,7 +68,7 @@ html, body, [class*="css"], .stText, .stMarkdown {
 .progress-title {
     font-size: 16px;
     font-weight: 600;
-    color: #FFFFFF;
+    color: var(--text-color, #FFFFFF);
 }
 
 .progress-percentage {
@@ -84,7 +84,7 @@ html, body, [class*="css"], .stText, .stMarkdown {
     margin-bottom: 15px;
     font-size: 20px;
     font-weight: 600;
-    color: #FFFFFF;
+    color: var(--text-color, #FFFFFF);
 }
 
 /* Input Sidebar styling */
@@ -130,10 +130,10 @@ html, body, [class*="css"], .stText, .stMarkdown {
 
 /* Contenedor tipo Tarjeta Dashboard Premium */
 .dashboard-card {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(128, 128, 128, 0.04);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(128, 128, 128, 0.12);
     border-radius: 16px;
     padding: 20px;
     margin-bottom: 20px;
@@ -173,8 +173,8 @@ html, body, [class*="css"], .stText, .stMarkdown {
     transition: all 0.25s ease-in-out;
 }
 .progress-container:hover {
-    background: rgba(255, 255, 255, 0.07) !important;
-    border-color: rgba(255, 255, 255, 0.15) !important;
+    background: rgba(128, 128, 128, 0.08) !important;
+    border-color: rgba(128, 128, 128, 0.2) !important;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
 }
 
@@ -205,15 +205,15 @@ html, body, [class*="css"], .stText, .stMarkdown {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(128, 128, 128, 0.03);
+    border: 1px solid rgba(128, 128, 128, 0.08);
     padding: 8px 12px;
     border-radius: 8px;
     margin-bottom: 6px;
     transition: background 0.2s ease;
 }
 .tx-item:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(128, 128, 128, 0.06);
 }
 .tx-info {
     display: flex;
@@ -222,7 +222,7 @@ html, body, [class*="css"], .stText, .stMarkdown {
 }
 .tx-name {
     font-weight: 600;
-    color: #FFFFFF;
+    color: var(--text-color, #FFFFFF);
     font-size: 13px;
 }
 .tx-meta {
@@ -231,7 +231,7 @@ html, body, [class*="css"], .stText, .stMarkdown {
 }
 .tx-amount {
     font-weight: 700;
-    color: #FFFFFF;
+    color: var(--text-color, #FFFFFF);
     font-size: 13px;
     text-align: right;
 }
@@ -252,7 +252,7 @@ html, body, [class*="css"], .stText, .stMarkdown {
     color: #09AB3B;
 }
 .kpi-progress-bar {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(128, 128, 128, 0.15);
     border-radius: 4px;
     height: 4px;
     width: 100%;

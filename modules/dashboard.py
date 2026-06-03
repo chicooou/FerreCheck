@@ -39,7 +39,7 @@ def render_dashboard(p: dict, calc_results: dict):
     st.markdown(
         clean_html(f"""
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-            <h3 style="margin: 0; font-size: 20px; font-weight: 600; color: #FFFFFF;">📊 Estado de Flujo de Caja</h3>
+            <h3 style="margin: 0; font-size: 20px; font-weight: 600; color: var(--text-color, #FFFFFF);">📊 Estado de Flujo de Caja</h3>
             <span class="strategy-badge strategy-badge-{p['estrategia']}">{est_info['nombre']}</span>
         </div>
         """),
@@ -61,7 +61,7 @@ def render_dashboard(p: dict, calc_results: dict):
     </div>
     <div class="kpi-subtext" style="margin-top: 0;">
         <span>Base Proyección:</span>
-        <span style="font-weight: 600; color: #FFFFFF;">{format_currency_clean(ventas_proyeccion)}</span>
+        <span style="font-weight: 600; color: var(--text-color, #FFFFFF);">{format_currency_clean(ventas_proyeccion)}</span>
     </div>
     """
     
@@ -74,7 +74,7 @@ def render_dashboard(p: dict, calc_results: dict):
     subcontenido_utilidad = f"""
     <div class="kpi-subtext">
         <span>Proyección Cierre:</span>
-        <span style="font-weight: 600; color: #FFFFFF;">{format_currency_clean(utilidad_proyectada)}</span>
+        <span style="font-weight: 600; color: var(--text-color, #FFFFFF);">{format_currency_clean(utilidad_proyectada)}</span>
     </div>
     <div style="height: 4px; margin-top: 4px;"></div>
     """
@@ -144,7 +144,7 @@ def render_dashboard(p: dict, calc_results: dict):
         st.markdown(
             clean_html(f"""
             <div class="dashboard-card" style="padding: 16px;">
-                <h4 style="margin-top:0; margin-bottom:12px; color:#FFFFFF; font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px;">
+                <h4 style="margin-top:0; margin-bottom:12px; color: var(--text-color, #FFFFFF); font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px;">
                     🎯 Operación del Mes ({nombre_mes_actual})
                 </h4>
                 
@@ -154,7 +154,7 @@ def render_dashboard(p: dict, calc_results: dict):
                         <span style="color:#A0AEC0; font-weight:500;">🚦 Compras Realizadas ({semaforo['emoji']} {semaforo['color']})</span>
                         <span style="color:{semaforo['hex']}; font-weight:600;">{consumo_pct:.1f}%</span>
                     </div>
-                    <div style="background-color: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
+                    <div style="background-color: rgba(128,128,128,0.15); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
                         <div style="background-color: {semaforo['hex']}; width: {min(consumo_pct, 100)}%; height: 100%; border-radius: 6px;"></div>
                     </div>
                     <div style="display:flex; justify-content:space-between; font-size:11px; color:#8C9CAE;">
@@ -163,7 +163,7 @@ def render_dashboard(p: dict, calc_results: dict):
                     </div>
                 </div>
                 
-                <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 12px 0;">
+                <hr style="border: 0; border-top: 1px solid rgba(128,128,128,0.15); margin: 12px 0;">
                 
                 <!-- Barra 2: Pagos -->
                 <div>
@@ -171,7 +171,7 @@ def render_dashboard(p: dict, calc_results: dict):
                         <span style="color:#A0AEC0; font-weight:500;">💵 Pagos de este Mes (Contado + Deudas)</span>
                         <span style="color:{semaforo_pagos['hex']}; font-weight:600;">{consumo_pagos_pct:.1f}%</span>
                     </div>
-                    <div style="background-color: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
+                    <div style="background-color: rgba(128,128,128,0.15); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
                         <div style="background-color: {semaforo_pagos['hex']}; width: {min(consumo_pagos_pct, 100)}%; height: 100%; border-radius: 6px;"></div>
                     </div>
                     <div style="display:flex; justify-content:space-between; font-size:11px; color:#8C9CAE;">
@@ -370,7 +370,7 @@ def render_barras_predictivas(calc_results: dict):
         
     html = f"""
     <div class="dashboard-card" style="padding: 16px;">
-        <h4 style="margin-top:0; margin-bottom:12px; color:#FFFFFF; font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px;">
+        <h4 style="margin-top:0; margin-bottom:12px; color: var(--text-color, #FFFFFF); font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px;">
             📅 Planificación de Pagos (Futuro)
         </h4>
     """
@@ -420,7 +420,7 @@ def render_barras_predictivas(calc_results: dict):
                 <span style="color:#A0AEC0; font-weight:500;">📅 Pagos {data['nombre']}</span>
                 <span style="color:{semaforo['hex']}; font-weight:600;">{pct:.1f}% Comprometido</span>
             </div>
-            <div style="background-color: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
+            <div style="background-color: rgba(128,128,128,0.15); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
                 <div style="background-color: {semaforo['hex']}; width: {min(pct, 100)}%; height: 100%; border-radius: 6px;"></div>
             </div>
             <div style="display:flex; justify-content:space-between; font-size:11px; color:#8C9CAE; margin-bottom: 4px;">
@@ -433,10 +433,10 @@ def render_barras_predictivas(calc_results: dict):
         
         # Divider between mes_1 and mes_2
         if i < len(keys) - 1:
-            html += '<hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 12px 0;">'
+            html += '<hr style="border: 0; border-top: 1px solid rgba(128,128,128,0.15); margin: 12px 0;">'
             
     html += f"""
-        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 12px 0 8px 0;">
+        <hr style="border: 0; border-top: 1px solid rgba(128,128,128,0.15); margin: 12px 0 8px 0;">
         <p style="color: #8C9CAE; font-size: 10px; margin-top: 0; margin-bottom: 0; font-style: italic;">
             * {caption_text}
         </p>
