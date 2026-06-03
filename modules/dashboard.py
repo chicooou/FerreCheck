@@ -418,7 +418,7 @@ def render_barras_predictivas(calc_results: dict):
         <div>
             <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:4px;">
                 <span style="color:#A0AEC0; font-weight:500;">📅 Pagos {data['nombre']}</span>
-                <span style="color:{semaforo['hex']}; font-weight:600;">{pct:.1f}% Pagado</span>
+                <span style="color:{semaforo['hex']}; font-weight:600;">{pct:.1f}% Comprometido</span>
             </div>
             <div style="background-color: rgba(255,255,255,0.08); border-radius: 6px; height: 8px; width: 100%; overflow: hidden; margin-bottom: 4px;">
                 <div style="background-color: {semaforo['hex']}; width: {min(pct, 100)}%; height: 100%; border-radius: 6px;"></div>
