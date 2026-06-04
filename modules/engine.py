@@ -336,8 +336,11 @@ def calcular_proyeccion_futura(
         metodo_proyeccion = "fallback_sidebar"
         
     # 3. Calcular límite de compra proyectado
+    # Para evitar que el límite de compra de los meses futuros fluctúe diariamente
+    # con el avance de la caja diaria del mes actual, se calcula de forma estable
+    # utilizando las ventas base del sidebar (ventas_sidebar).
     gastos_totales = sum(gastos.values())
-    res_limite = calcular_limite_compra(ventas_proyectadas, gastos_totales, estrategia)
+    res_limite = calcular_limite_compra(ventas_sidebar, gastos_totales, estrategia)
     limite_proyectado = res_limite["limite_real"]
     
     # 4. Calcular Mes+1 y Mes+2 numéricos y nombres
@@ -416,6 +419,7 @@ def calcular_proyeccion_futura(
     return {
         "ventas_proyectadas": ventas_proyectadas,
         "metodo_proyeccion": metodo_proyeccion,
+        "ventas_base_planificacion": ventas_sidebar,
         "mes_1": {
             "nombre": nombre_mes_1,
             "mes": mes_1_num,

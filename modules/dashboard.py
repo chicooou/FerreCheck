@@ -355,18 +355,12 @@ def render_barras_predictivas(calc_results: dict):
     if not proyeccion:
         return
     
-    metodo = proyeccion["metodo_proyeccion"]
-    ventas_proy = proyeccion["ventas_proyectadas"]
+    ventas_base_plan = proyeccion.get("ventas_base_planificacion", 0.0)
     
-    # Nota informativa corta sobre cómo se calculó el límite
-    if metodo == "caja_diaria":
-        caption_text = (
-            f"Límites basados en extrapolación de Caja Diaria ({format_currency_clean(ventas_proy)} est. ventas)."
-        )
-    else:
-        caption_text = (
-            f"Límites basados en Ventas del sidebar ({format_currency_clean(ventas_proy)} base)."
-        )
+    # Nota informativa corta sobre cómo se calculó el límite (base estable del sidebar)
+    caption_text = (
+        f"Límites futuros basados en Ventas del sidebar ({format_currency_clean(ventas_base_plan)} base)."
+    )
         
     html = f"""
     <div class="dashboard-card" style="padding: 16px;">
