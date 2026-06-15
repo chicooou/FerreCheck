@@ -84,6 +84,14 @@ class OdooRPC:
         fields = ['id', 'name', 'amount']
         return self._execute('account.tax', 'search_read', [domain], {'fields': fields})
 
+    def fetch_all_products(self) -> List[Dict[str, Any]]:
+        """
+        Obtiene una lista ligera de todos los productos (product.product) activos.
+        """
+        domain = [('active', '=', True)]
+        fields = ['id', 'name', 'default_code']
+        return self._execute('product.product', 'search_read', [domain], {'fields': fields, 'order': 'name asc'})
+
     def search_product(self, query: str, vendor_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Busca un producto por código interno (default_code) o por nombre.

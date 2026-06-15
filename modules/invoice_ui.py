@@ -45,6 +45,8 @@ def initialize_state():
         st.session_state.inv_odoo_vendors = []
     if "inv_odoo_taxes" not in st.session_state:
         st.session_state.inv_odoo_taxes = []
+    if "inv_odoo_products" not in st.session_state:
+        st.session_state.inv_odoo_products = []
     if "inv_odoo_connected" not in st.session_state:
         st.session_state.inv_odoo_connected = False
     if "inv_creating_po" not in st.session_state:
@@ -90,6 +92,7 @@ def render_invoice_tab():
                 client.connect()
                 st.session_state.inv_odoo_vendors = client.fetch_vendors()
                 st.session_state.inv_odoo_taxes = client.fetch_purchase_taxes()
+                st.session_state.inv_odoo_products = client.fetch_all_products()
                 st.session_state.inv_odoo_connected = True
         except Exception as e:
             st.error(f"⚠️ Error al conectar con Odoo: {str(e)}")
@@ -101,7 +104,7 @@ def render_invoice_tab():
     # Cabecera de estado
     col_status, col_refresh = st.columns([4, 1])
     with col_status:
-        st.success(f"🟢 Conectado a Odoo SaaS | {len(st.session_state.inv_odoo_vendors)} proveedores y {len(st.session_state.inv_odoo_taxes)} impuestos cargados.")
+        st.success(f"🟢 Conectado a Odoo SaaS | {len(st.session_state.inv_odoo_vendors)} proveedores, {len(st.session_state.inv_odoo_taxes)} impuestos y {len(st.session_state.inv_odoo_products)} productos cargados.")
     with col_refresh:
         if st.button("🔄 Sincronizar catálogo", use_container_width=True):
             st.session_state.inv_odoo_connected = False
@@ -308,20 +311,32 @@ def render_step_3(client: OdooRPC):
             st.write(f"**Línea**: `{line['description']}` (Cant: {line['quantity']} | Unit: Q {line['price_unit']:.2f})")
             
         with col_match:
-            if match["found"]:
+            if match["found"] and match.get("action", "use_existing") == "use_existing":
                 st.success(f"✅ Odoo Match: **[{match['default_code']}] {match['odoo_name']}**")
+            elif match.get("action") == "map_existing" and match.get("manually_mapped"):
+                st.info(f"🔗 Vinculado a: **[{match['default_code']}] {match['odoo_name']}**")
             else:
                 st.warning("⚠️ No se encontró coincidencia en Odoo.")
                 
         with col_action:
-            action_options = ["use_existing", "create_new"]
-            action_labels = {"use_existing": "Usar Existente", "create_new": "Crear Nuevo"}
+            action_options = ["use_existing", "create_new", "map_existing"]
+            action_labels = {
+                "use_existing": "Usar Match Sugerido" if match["found"] else "Sin coincidencia",
+                "create_new": "Crear Nuevo",
+                "map_existing": "Buscar Catálogo"
+            }
             
+            # Si no se encontró match inicialmente, deshabilitar o no sugerir "use_existing" como primera opción
+            idx_default = 0
+            if not match["found"]:
+                # Si no hay match sugerido, la acción por defecto es "create_new" (índice 1)
+                idx_default = 1
+                
             selected_action = st.selectbox(
                 "Acción:",
                 options=action_options,
                 format_func=lambda x: action_labels[x],
-                index=0 if match["found"] else 1,
+                index=idx_default,
                 key=f"act_{i}"
             )
             match["action"] = selected_action
@@ -333,15 +348,47 @@ def render_step_3(client: OdooRPC):
             with col_new_name:
                 match["new_name"] = st.text_input(
                     "Nombre en Odoo:", 
-                    value=match["odoo_name"] or match["line_desc"], 
+                    value=match.get("new_name") or match["odoo_name"] or match["line_desc"], 
                     key=f"new_name_{i}"
                 )
             with col_new_code:
                 match["new_code"] = st.text_input(
                     "Código Interno / Ref:", 
-                    value=match["default_code"], 
+                    value=match.get("new_code") or match["default_code"], 
                     key=f"new_code_{i}"
                 )
+        elif selected_action == "map_existing":
+            # Autocompletado del catálogo
+            products = st.session_state.inv_odoo_products
+            def get_prod_label(p):
+                code = p.get("default_code")
+                if code:
+                    return f"{p['name']} [{code}]"
+                return p['name']
+            
+            col_empty, col_search_prod = st.columns([0.5, 4.5])
+            with col_search_prod:
+                # Buscar índice del producto ya seleccionado si existe
+                current_id = match.get("product_id")
+                default_idx = 0
+                if current_id:
+                    for idx, p in enumerate(products):
+                        if p["id"] == current_id:
+                            default_idx = idx
+                            break
+                            
+                selected_p = st.selectbox(
+                    "Selecciona el producto existente de Odoo:",
+                    options=products,
+                    format_func=get_prod_label,
+                    index=default_idx,
+                    key=f"map_p_{i}"
+                )
+                if selected_p:
+                    match["product_id"] = selected_p["id"]
+                    match["odoo_name"] = selected_p["name"]
+                    match["default_code"] = selected_p.get("default_code") or ""
+                    match["manually_mapped"] = True
 
         st.markdown("---")
 
@@ -402,12 +449,26 @@ def render_step_4(client: OdooRPC):
                         "odoo_product_id": product_id,
                         "odoo_default_code": match["new_code"]
                     })
+            elif match["action"] == "map_existing" or (match["action"] == "use_existing" and match.get("manually_mapped")):
+                # Guardar regla de mapeo manual para el producto existente
+                rules_to_save.append({
+                    "vendor_id": st.session_state.inv_vendor_id,
+                    "vendor_name": st.session_state.inv_vendor_name,
+                    "original_description": line["original_description"],
+                    "converted_description": match["odoo_name"],
+                    "quantity_multiplier": 1.0,
+                    "odoo_product_id": product_id,
+                    "odoo_default_code": match["default_code"]
+                })
             
             # Obtener uom_id (vía lectura si existía)
-            uom_id = match["uom_id"]
+            uom_id = match.get("uom_id")
             if match["action"] == "use_existing" and not uom_id:
                 details = client.get_product_details(product_id)
                 uom_id = details["uom_id"]
+            elif not uom_id:
+                # Default a UoM unidad (id 1)
+                uom_id = 1
 
             po_lines.append({
                 'product_id': product_id,
