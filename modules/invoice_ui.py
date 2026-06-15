@@ -5,6 +5,7 @@ Módulo de la interfaz de usuario en Streamlit para el flujo de Factura OCR e in
 import streamlit as st
 import pandas as pd
 import os
+import datetime
 from typing import Dict, Any, List, Optional
 from modules.odoo_connector import OdooRPC, OdooAuthError, OdooConnectionError, OdooValidationError
 from modules.invoice_ocr import extract_invoice_data
@@ -567,6 +568,15 @@ def render_step_4(client: OdooRPC):
                         "odoo_product_id": product_id,
                         "odoo_default_code": match["new_code"]
                     })
+                    
+                    # Crear regla de reabastecimiento (min/max)
+                    qty_bought = line["quantity"]
+                    min_q = 1.0 if qty_bought > 1.0 else 0.0
+                    max_q = float(qty_bought) if qty_bought > 1.0 else 1.0
+                    try:
+                        client.create_reordering_rule(product_id, min_q, max_q)
+                    except Exception as re_err:
+                        st.warning(f"⚠️ No se pudo crear la regla de reabastecimiento para '{match['new_name']}': {str(re_err)}")
             elif match["action"] == "map_existing" or (match["action"] == "use_existing" and match.get("manually_mapped")):
                 # Guardar regla de mapeo manual para el producto existente
                 rules_to_save.append({
@@ -716,7 +726,6 @@ def render_step_5(client: OdooRPC):
             )
             
             # Calcular fecha de vencimiento
-            import datetime
             try:
                 inv_date = datetime.datetime.strptime(st.session_state.inv_invoice_date, "%Y-%m-%d").date()
             except ValueError:

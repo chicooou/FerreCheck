@@ -169,8 +169,10 @@ class OdooRPC:
         vals: Dict[str, Any] = {
             'name': name.strip(),
             'type': type,
+            'is_storable': True,  # Rastrear en inventario / Control de Stock
             'default_code': default_code.strip() if default_code else False,
             'list_price': sale_price if sale_price is not None else vendor_price,
+            'standard_price': vendor_price,  # Costo
         }
 
         if purchase_tax_ids:
@@ -353,3 +355,28 @@ class OdooRPC:
         # 4. Asentar los pagos
         self._execute('account.payment.register', 'action_create_payments', [[wizard_id]])
         return True
+
+    def create_reordering_rule(self, product_id: int, min_qty: float, max_qty: float) -> int:
+        """
+        Crea una regla de reabastecimiento (stock.warehouse.orderpoint) para un producto.
+        """
+        # Buscar el almacén principal
+        warehouses = self._execute('stock.warehouse', 'search', [[]])
+        warehouse_id = warehouses[0] if warehouses else False
+        
+        # Buscar la primera ubicación interna
+        locations = self._execute('stock.location', 'search', [[('usage', '=', 'internal')]])
+        location_id = locations[0] if locations else False
+        
+        vals = {
+            'product_id': product_id,
+            'product_min_qty': float(min_qty),
+            'product_max_qty': float(max_qty),
+            'trigger': 'auto'
+        }
+        if warehouse_id:
+            vals['warehouse_id'] = warehouse_id
+        if location_id:
+            vals['location_id'] = location_id
+            
+        return self._execute('stock.warehouse.orderpoint', 'create', [vals])
