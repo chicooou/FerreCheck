@@ -68,7 +68,38 @@ def reset_flow():
     st.session_state.inv_creating_po = False
     st.session_state.inv_rules_to_save = []
 
+def render_rules_sidebar():
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### ⚙️ Reglas de Conversión")
+        st.write("Reglas aprendidas al vincular descripciones de facturas con Odoo:")
+        
+        from modules.rules_matrix import load_rules, save_rules
+        rules = load_rules()
+        if not rules:
+            st.info("Aún no tienes reglas guardadas.")
+        else:
+            rule_to_delete = None
+            for r in rules:
+                col_rule, col_del = st.columns([4, 1])
+                with col_rule:
+                    st.caption(f"**{r['vendor_name']}**")
+                    st.write(f"*{r['original_description']}* ➔ **{r['converted_description']}**")
+                with col_del:
+                    if st.button("🗑️", key=f"del_rule_{r['id']}", help="Eliminar esta regla"):
+                        rule_to_delete = r["id"]
+                st.markdown("<hr style='margin: 4px 0px; border-color: rgba(49, 51, 63, 0.1);'>", unsafe_allow_html=True)
+            
+            if rule_to_delete:
+                new_rules = [r for r in rules if r["id"] != rule_to_delete]
+                save_rules(new_rules)
+                st.success("Regla eliminada.")
+                # Reset matches so it updates matches based on the new rules matrix
+                st.session_state.inv_product_matches = []
+                st.rerun()
+
 def render_invoice_tab():
+    render_rules_sidebar()
     initialize_state()
 
     st.markdown("## 📸 Integración Odoo — Facturación de Compra OCR")
@@ -326,11 +357,12 @@ def render_step_3(client: OdooRPC):
                 "map_existing": "Buscar Catálogo"
             }
             
-            # Si no se encontró match inicialmente, deshabilitar o no sugerir "use_existing" como primera opción
-            idx_default = 0
-            if not match["found"]:
-                # Si no hay match sugerido, la acción por defecto es "create_new" (índice 1)
-                idx_default = 1
+            # Determinar el índice por defecto según el estado actual de match["action"]
+            current_action = match.get("action")
+            if current_action in action_options:
+                idx_default = action_options.index(current_action)
+            else:
+                idx_default = 0 if match["found"] else 1
                 
             selected_action = st.selectbox(
                 "Acción:",
@@ -368,10 +400,10 @@ def render_step_3(client: OdooRPC):
             
             col_empty, col_search_prod = st.columns([0.5, 4.5])
             with col_search_prod:
-                # Buscar índice del producto ya seleccionado si existe
+                # Buscar índice del producto ya seleccionado si existe y fue mapeado manualmente
                 current_id = match.get("product_id")
-                default_idx = 0
-                if current_id:
+                default_idx = None
+                if current_id and match.get("manually_mapped"):
                     for idx, p in enumerate(products):
                         if p["id"] == current_id:
                             default_idx = idx
@@ -382,6 +414,7 @@ def render_step_3(client: OdooRPC):
                     options=products,
                     format_func=get_prod_label,
                     index=default_idx,
+                    placeholder="Escribe para buscar...",
                     key=f"map_p_{i}"
                 )
                 if selected_p:
