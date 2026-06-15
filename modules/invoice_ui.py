@@ -817,33 +817,43 @@ def render_step_5(client: OdooRPC):
 
     # Registro en Semáforo local
     st.write("---")
-    st.markdown("#### ¿Registrar en el presupuesto local de FerreCheck?")
-    st.write("Agrega el total de esta compra a tu Semáforo de compras local Emmanuel.")
+    try:
+        inv_date = datetime.datetime.strptime(st.session_state.inv_invoice_date, "%Y-%m-%d").date()
+    except Exception:
+        inv_date = datetime.date.today()
+        
+    is_before_today = inv_date < datetime.date.today()
     
-    col_reg_term, col_reg_btn = st.columns([3, 1])
-    with col_reg_term:
-        modalidad_local = st.selectbox(
-            "Modalidad de compra local:",
-            options=["Contado", "Crédito"],
-            key="modalidad_local_compra"
-        )
-    with col_reg_btn:
-        st.write("")
-        st.write("")
-        if st.button("📥 Registrar localmente", type="secondary", use_container_width=True):
-            if "periodo_actual" in st.session_state:
-                p = st.session_state.periodo_actual
-                import uuid
-                nueva_compra = {
-                    "id": str(uuid.uuid4()),
-                    "monto": float(result['amount_total']),
-                    "proveedor": st.session_state.inv_vendor_name,
-                    "fecha": st.session_state.inv_invoice_date if st.session_state.inv_invoice_date else datetime.date.today().strftime("%Y-%m-%d"),
-                    "nota": f"Importado de Odoo PO {result['name']} | Fac: {st.session_state.inv_invoice_number}",
-                    "modalidad": modalidad_local
-                }
-                p["compras"].append(nueva_compra)
-                st.success(f"Guardado en compras del mes local: {result['name']}")
+    if is_before_today:
+        st.info("ℹ️ Esta factura tiene una fecha anterior a hoy. Se asume que ya está registrada en el Semáforo local (Google Sheet), por lo que solo se procesará en Odoo.")
+    else:
+        st.markdown("#### ¿Registrar en el presupuesto local de FerreCheck?")
+        st.write("Agrega el total de esta compra a tu Semáforo de compras local Emmanuel.")
+        
+        col_reg_term, col_reg_btn = st.columns([3, 1])
+        with col_reg_term:
+            modalidad_local = st.selectbox(
+                "Modalidad de compra local:",
+                options=["Contado", "Crédito"],
+                key="modalidad_local_compra"
+            )
+        with col_reg_btn:
+            st.write("")
+            st.write("")
+            if st.button("📥 Registrar localmente", type="secondary", use_container_width=True):
+                if "periodo_actual" in st.session_state:
+                    p = st.session_state.periodo_actual
+                    import uuid
+                    nueva_compra = {
+                        "id": str(uuid.uuid4()),
+                        "monto": float(result['amount_total']),
+                        "proveedor": st.session_state.inv_vendor_name,
+                        "fecha": st.session_state.inv_invoice_date if st.session_state.inv_invoice_date else datetime.date.today().strftime("%Y-%m-%d"),
+                        "nota": f"Importado de Odoo PO {result['name']} | Fac: {st.session_state.inv_invoice_number}",
+                        "modalidad": modalidad_local
+                    }
+                    p["compras"].append(nueva_compra)
+                    st.success(f"Guardado en compras del mes local: {result['name']}")
 
     st.write("---")
     if st.button("📸 Procesar nueva factura", type="primary"):
@@ -954,20 +964,28 @@ def render_cuentas_por_pagar(client: OdooRPC):
                                         )
                                         st.success(f"¡Pago registrado exitosamente para {b['name']}!")
                                         
-                                        # Registrar en Semáforo local
-                                        if "periodo_actual" in st.session_state:
-                                            p = st.session_state.periodo_actual
-                                            import uuid
-                                            nueva_compra = {
-                                                "id": str(uuid.uuid4()),
-                                                "monto": float(b['amount_residual']),
-                                                "proveedor": b['vendor_name'],
-                                                "fecha": pay_date.strftime("%Y-%m-%d"),
-                                                "nota": f"Pago diferido Odoo Fac: {b['ref'] or b['name']}",
-                                                "modalidad": "Contado"
-                                            }
-                                            p["compras"].append(nueva_compra)
-                                            st.toast("Registrado en compras locales del semáforo.")
+                                        # Registrar en Semáforo local solo si la factura es de hoy o posterior
+                                        try:
+                                            b_date = datetime.datetime.strptime(b['invoice_date'], "%Y-%m-%d").date()
+                                        except Exception:
+                                            b_date = datetime.date.today()
+                                            
+                                        if b_date >= datetime.date.today():
+                                            if "periodo_actual" in st.session_state:
+                                                p = st.session_state.periodo_actual
+                                                import uuid
+                                                nueva_compra = {
+                                                    "id": str(uuid.uuid4()),
+                                                    "monto": float(b['amount_residual']),
+                                                    "proveedor": b['vendor_name'],
+                                                    "fecha": pay_date.strftime("%Y-%m-%d"),
+                                                    "nota": f"Pago diferido Odoo Fac: {b['ref'] or b['name']}",
+                                                    "modalidad": "Contado"
+                                                }
+                                                p["compras"].append(nueva_compra)
+                                                st.toast("Registrado en compras locales del semáforo.")
+                                        else:
+                                            st.toast("Factura anterior a hoy. Se omitió el registro local.")
                                         
                                         st.rerun()
                                     except Exception as err:
