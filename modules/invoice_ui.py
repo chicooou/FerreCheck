@@ -11,11 +11,11 @@ from modules.invoice_ocr import extract_invoice_data
 from modules.rules_matrix import find_matching_rule, create_or_update_rule
 
 def get_odoo_client() -> Optional[OdooRPC]:
-    """Crea una instancia del cliente Odoo utilizando las variables del entorno."""
-    url = os.getenv("ODOO_URL")
-    db = os.getenv("ODOO_DB")
-    username = os.getenv("ODOO_USERNAME")
-    api_key = os.getenv("ODOO_API_KEY")
+    """Crea una instancia del cliente Odoo utilizando las variables del entorno o st.secrets."""
+    url = os.getenv("ODOO_URL") or st.secrets.get("ODOO_URL")
+    db = os.getenv("ODOO_DB") or st.secrets.get("ODOO_DB")
+    username = os.getenv("ODOO_USERNAME") or st.secrets.get("ODOO_USERNAME")
+    api_key = os.getenv("ODOO_API_KEY") or st.secrets.get("ODOO_API_KEY")
     
     if not all([url, db, username, api_key]):
         return None

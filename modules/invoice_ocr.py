@@ -39,7 +39,14 @@ def extract_invoice_data(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("GEMINI_API_KEY no configurado en las variables de entorno.")
+        try:
+            import streamlit as st
+            api_key = st.secrets.get("GEMINI_API_KEY")
+        except Exception:
+            pass
+            
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY no configurado en las variables de entorno ni en st.secrets.")
 
     # Optimizar imagen antes de enviar
     optimized_bytes = compress_image(image_bytes)
