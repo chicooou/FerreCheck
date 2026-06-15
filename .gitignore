@@ -100,4 +100,6 @@ secrets/
 *.json
 !data/history.json
 !data/current_period.json
+!data/processed_invoices.json
+!data/rules_matrix.json
 

@@ -414,3 +414,53 @@ def load_all_data_from_sheets() -> tuple:
     except Exception as e:
         st.sidebar.error(f"❌ Error interno al cargar desde Google Sheets: {str(e)}")
         return None, None
+
+def load_processed_bill_ids_from_sheets() -> list:
+    """Carga los IDs de facturas procesadas desde la pestaña OdooFacturas de Google Sheets."""
+    client = get_gspread_client()
+    if not client:
+        return []
+    try:
+        sh = client.open(SPREADSHEET_NAME)
+        try:
+            ws = sh.worksheet("OdooFacturas")
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(title="OdooFacturas", rows="1000", cols="2")
+            ws.append_row(["Bill ID", "Fecha Registro"])
+            return []
+            
+        values = ws.col_values(1) # Obtener la primera columna (Bill ID)
+        if len(values) <= 1:
+            return []
+        ids = []
+        for val in values[1:]:
+            try:
+                ids.append(int(float(val)))
+            except ValueError:
+                pass
+        return ids
+    except Exception as e:
+        print(f"Error loading processed bill IDs from sheets: {e}")
+        return []
+
+def register_processed_bill_id_to_sheets(bill_id: int) -> None:
+    """Registra un ID de factura procesada en la pestaña OdooFacturas de Google Sheets."""
+    client = get_gspread_client()
+    if not client:
+        return
+    try:
+        sh = client.open(SPREADSHEET_NAME)
+        try:
+            ws = sh.worksheet("OdooFacturas")
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(title="OdooFacturas", rows="1000", cols="2")
+            ws.append_row(["Bill ID", "Fecha Registro"])
+            
+        # Verificar si ya existe para evitar duplicados
+        values = ws.col_values(1)
+        str_bill_id = str(bill_id)
+        if str_bill_id not in values:
+            ws.append_row([bill_id, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    except Exception as e:
+        print(f"Error registering processed bill ID to sheets: {e}")
+

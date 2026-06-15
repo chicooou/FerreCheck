@@ -107,22 +107,52 @@ def create_or_update_rule(vendor_id: int, vendor_name: str, original_description
 PROCESSED_INVOICES_PATH = os.path.join("data", "processed_invoices.json")
 
 def load_processed_bill_ids() -> List[int]:
-    """Carga la lista de IDs de facturas de Odoo creadas por la aplicación."""
-    if not os.path.exists(PROCESSED_INVOICES_PATH):
+    """Carga la lista de IDs de facturas de Odoo creadas por la aplicación, sincronizando con Google Sheets."""
+    # Intentar cargar desde Google Sheets
+    try:
+        from modules.sheets import load_processed_bill_ids_from_sheets
+        sheet_ids = load_processed_bill_ids_from_sheets()
+    except Exception:
+        sheet_ids = []
+
+    # Cargar desde archivo local
+    local_ids = []
+    if os.path.exists(PROCESSED_INVOICES_PATH):
+        try:
+            with open(PROCESSED_INVOICES_PATH, "r", encoding="utf-8") as f:
+                local_ids = json.load(f)
+        except Exception:
+            pass
+
+    # Combinar ambas fuentes para asegurar que no se pierda nada
+    combined = list(set(sheet_ids + local_ids))
+
+    # Guardar la lista combinada localmente para actualizar caché local
+    try:
         os.makedirs(os.path.dirname(PROCESSED_INVOICES_PATH), exist_ok=True)
         with open(PROCESSED_INVOICES_PATH, "w", encoding="utf-8") as f:
-            json.dump([], f)
-        return []
-    try:
-        with open(PROCESSED_INVOICES_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+            json.dump(combined, f, indent=4)
     except Exception:
-        return []
+        pass
+
+    return combined
 
 def register_processed_bill_id(bill_id: int) -> None:
-    """Registra el ID de la factura creada para su posterior seguimiento."""
+    """Registra el ID de la factura creada localmente y en Google Sheets para su posterior seguimiento."""
+    # Guardar en local primero
     ids = load_processed_bill_ids()
     if bill_id not in ids:
         ids.append(bill_id)
-        with open(PROCESSED_INVOICES_PATH, "w", encoding="utf-8") as f:
-            json.dump(ids, f, indent=4)
+        try:
+            with open(PROCESSED_INVOICES_PATH, "w", encoding="utf-8") as f:
+                json.dump(ids, f, indent=4)
+        except Exception:
+            pass
+
+    # Registrar en Google Sheets
+    try:
+        from modules.sheets import register_processed_bill_id_to_sheets
+        register_processed_bill_id_to_sheets(bill_id)
+    except Exception:
+        pass
+
