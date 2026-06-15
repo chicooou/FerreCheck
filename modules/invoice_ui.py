@@ -126,11 +126,7 @@ def render_invoice_tab():
     initialize_state()
 
     st.markdown("## 📸 Integración Odoo — Facturación de Compra OCR")
-    st.markdown(
-        "Sube una foto de la factura de compra física de tu proveedor. "
-        "La IA extraerá las líneas de productos, las validará contra Odoo y creará un borrador de Orden de Compra (RFQ)."
-    )
-
+    
     client = get_odoo_client()
     if not client:
         st.error(
@@ -166,17 +162,24 @@ def render_invoice_tab():
 
     st.markdown("---")
 
-    # Render de pasos
-    if st.session_state.inv_step == 1:
-        render_step_1(client)
-    elif st.session_state.inv_step == 2:
-        render_step_2()
-    elif st.session_state.inv_step == 3:
-        render_step_3(client)
-    elif st.session_state.inv_step == 4:
-        render_step_4(client)
-    elif st.session_state.inv_step == 5:
-        render_step_5(client)
+    # Separar en dos sub-pestañas:
+    subtab_ocr, subtab_payable = st.tabs(["📸 Procesar Factura (OCR)", "📊 Cuentas por Pagar (Odoo)"])
+
+    with subtab_ocr:
+        # Render de pasos
+        if st.session_state.inv_step == 1:
+            render_step_1(client)
+        elif st.session_state.inv_step == 2:
+            render_step_2()
+        elif st.session_state.inv_step == 3:
+            render_step_3(client)
+        elif st.session_state.inv_step == 4:
+            render_step_4(client)
+        elif st.session_state.inv_step == 5:
+            render_step_5(client)
+
+    with subtab_payable:
+        render_cuentas_por_pagar(client)
 
 def render_step_1(client: OdooRPC):
     st.markdown("### Paso 1: Selección de Proveedor y Carga de Imagen")
@@ -757,54 +760,59 @@ def render_step_5(client: OdooRPC):
                         )
                         st.session_state.inv_bill_id = bill_id
                         st.session_state.inv_bill_posted = True
+                        st.session_state.inv_payment_term = plazo_pago
                         st.success("¡Factura publicada con éxito!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error al facturar: {str(e)}")
 
     # Paso 4: Registrar Pago
-    st.write("**Paso 4: Registrar Pago Contable (Opcional)**")
-    if st.session_state.inv_payment_registered:
-        st.success("✔️ Pago registrado y asentado en Odoo.")
-    else:
-        # Cargar diarios
-        if "inv_odoo_journals" not in st.session_state or not st.session_state.inv_odoo_journals:
-            try:
-                st.session_state.inv_odoo_journals = client.fetch_payment_journals()
-            except Exception:
-                st.session_state.inv_odoo_journals = []
-                
-        if st.session_state.inv_odoo_journals:
-            col_journal, col_pay_date, col_pay_btn = st.columns([2, 1.5, 1.5])
-            with col_journal:
-                journal_options = {j['id']: f"{j['name']} ({j['code']})" for j in st.session_state.inv_odoo_journals}
-                selected_journal_id = st.selectbox(
-                    "Diario de Pago:",
-                    options=list(journal_options.keys()),
-                    format_func=lambda x: journal_options[x],
-                    key="journal_pago_odoo"
-                )
-            with col_pay_date:
-                pay_date_val = st.date_input("Fecha de Pago:", value=datetime.date.today())
-            with col_pay_btn:
-                st.write("")
-                st.write("")
-                pay_btn = st.button("Registrar Pago", disabled=(not st.session_state.inv_bill_posted), use_container_width=True)
-                if pay_btn:
-                    with st.spinner("Asentando pago en Odoo..."):
-                        try:
-                            client.register_bill_payment(
-                                bill_id=st.session_state.inv_bill_id,
-                                journal_id=selected_journal_id,
-                                payment_date=pay_date_val.strftime("%Y-%m-%d")
-                            )
-                            st.session_state.inv_payment_registered = True
-                            st.success("¡Pago registrado!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error al registrar pago: {str(e)}")
+    term_selected = st.session_state.get("inv_payment_term", "Contado")
+    if term_selected == "Contado":
+        st.write("**Paso 4: Registrar Pago Contable (Opcional)**")
+        if st.session_state.inv_payment_registered:
+            st.success("✔️ Pago registrado y asentado en Odoo.")
         else:
-            st.info("No se pudieron cargar diarios de pago activos (Banco/Caja) en Odoo.")
+            # Cargar diarios
+            if "inv_odoo_journals" not in st.session_state or not st.session_state.inv_odoo_journals:
+                try:
+                    st.session_state.inv_odoo_journals = client.fetch_payment_journals()
+                except Exception:
+                    st.session_state.inv_odoo_journals = []
+                    
+            if st.session_state.inv_odoo_journals:
+                col_journal, col_pay_date, col_pay_btn = st.columns([2, 1.5, 1.5])
+                with col_journal:
+                    journal_options = {j['id']: f"{j['name']} ({j['code']})" for j in st.session_state.inv_odoo_journals}
+                    selected_journal_id = st.selectbox(
+                        "Diario de Pago:",
+                        options=list(journal_options.keys()),
+                        format_func=lambda x: journal_options[x],
+                        key="journal_pago_odoo"
+                    )
+                with col_pay_date:
+                    pay_date_val = st.date_input("Fecha de Pago:", value=datetime.date.today())
+                with col_pay_btn:
+                    st.write("")
+                    st.write("")
+                    pay_btn = st.button("Registrar Pago", disabled=(not st.session_state.inv_bill_posted), use_container_width=True)
+                    if pay_btn:
+                        with st.spinner("Asentando pago en Odoo..."):
+                            try:
+                                client.register_bill_payment(
+                                    bill_id=st.session_state.inv_bill_id,
+                                    journal_id=selected_journal_id,
+                                    payment_date=pay_date_val.strftime("%Y-%m-%d")
+                                )
+                                st.session_state.inv_payment_registered = True
+                                st.success("¡Pago registrado!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al registrar pago: {str(e)}")
+            else:
+                st.info("No se pudieron cargar diarios de pago activos (Banco/Caja) en Odoo.")
+    else:
+        st.info(f"ℹ️ Factura registrada a Crédito ({term_selected}). Puedes consultar y pagar esta factura en la pestaña **Cuentas por Pagar (Odoo)**.")
 
     # Registro en Semáforo local
     st.write("---")
@@ -840,3 +848,127 @@ def render_step_5(client: OdooRPC):
     if st.button("📸 Procesar nueva factura", type="primary"):
         reset_flow()
         st.rerun()
+
+def render_cuentas_por_pagar(client: OdooRPC):
+    st.markdown("### 📊 Cuentas por Pagar (Odoo SaaS)")
+    st.write("Consulta y registra pagos de tus facturas de compra pendientes en Odoo.")
+
+    # Cargar diarios si no están en state
+    if "inv_odoo_journals" not in st.session_state or not st.session_state.inv_odoo_journals:
+        try:
+            st.session_state.inv_odoo_journals = client.fetch_payment_journals()
+        except Exception:
+            st.session_state.inv_odoo_journals = []
+
+    try:
+        with st.spinner("Obteniendo facturas pendientes de Odoo..."):
+            bills = client.fetch_unpaid_bills()
+            
+        if not bills:
+            st.success("🎉 No tienes facturas pendientes de pago en Odoo.")
+            return
+
+        # Calcular total pendiente
+        total_pending = sum(b['amount_residual'] for b in bills)
+        st.metric("Total Pendiente en Odoo (Q)", f"Q {total_pending:,.2f}")
+
+        # Agrupar facturas por mes (usando invoice_date_due o invoice_date si no tiene vencimiento)
+        # Formato de agrupación: YYYY-MM
+        grouped_bills = {}
+        for bill in bills:
+            date_str = bill['invoice_date_due'] or bill['invoice_date'] or ""
+            if date_str:
+                try:
+                    dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+                    month_key = dt.strftime("%Y-%m")
+                    month_label = dt.strftime("%B %Y").capitalize()
+                except Exception:
+                    month_key = "Sin Fecha"
+                    month_label = "Sin Fecha de Vencimiento"
+            else:
+                month_key = "Sin Fecha"
+                month_label = "Sin Fecha de Vencimiento"
+
+            if month_key not in grouped_bills:
+                grouped_bills[month_key] = {"label": month_label, "bills": []}
+            grouped_bills[month_key]["bills"].append(bill)
+
+        # Ordenar los meses de forma ascendente (el más vencido/cercano primero)
+        sorted_month_keys = sorted(list(grouped_bills.keys()))
+
+        # Nombres de meses en español
+        meses_es = {
+            "January": "Enero", "February": "Febrero", "March": "Marzo", "April": "Abril",
+            "May": "Mayo", "June": "Junio", "July": "Julio", "August": "Agosto",
+            "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
+        }
+        
+        for m_key in sorted_month_keys:
+            m_data = grouped_bills[m_key]
+            lbl = m_data["label"]
+            for en, es in meses_es.items():
+                if en in lbl:
+                    lbl = lbl.replace(en, es)
+                    
+            st.markdown(f"#### 📅 Vencimiento: {lbl}")
+            
+            for b in m_data["bills"]:
+                with st.expander(f"📄 {b['vendor_name']} | Ref: {b['ref'] or b['name']} | Pendiente: Q {b['amount_residual']:,.2f}"):
+                    st.write(f"**Número de Documento (Odoo)**: {b['name']}")
+                    st.write(f"**Proveedor**: {b['vendor_name']}")
+                    st.write(f"**Referencia / Fac #**: {b['ref'] or 'N/A'}")
+                    st.write(f"**Fecha Emisión**: {b['invoice_date']}")
+                    st.write(f"**Fecha Vencimiento**: {b['invoice_date_due']}")
+                    st.write(f"**Monto Total**: Q {b['amount_total']:,.2f}")
+                    st.write(f"**Monto Pendiente (Residual)**: Q {b['amount_residual']:,.2f}")
+                    
+                    st.markdown("##### 💳 Registrar Pago de Factura")
+                    
+                    if st.session_state.inv_odoo_journals:
+                        col_j, col_d, col_b = st.columns([2, 1.5, 1.5])
+                        with col_j:
+                            j_opts = {j['id']: f"{j['name']} ({j['code']})" for j in st.session_state.inv_odoo_journals}
+                            sel_j_id = st.selectbox(
+                                "Diario de Pago:",
+                                options=list(j_opts.keys()),
+                                format_func=lambda x: j_opts[x],
+                                key=f"pay_j_{b['id']}"
+                            )
+                        with col_d:
+                            pay_date = st.date_input("Fecha Pago:", value=datetime.date.today(), key=f"pay_d_{b['id']}")
+                        with col_b:
+                            st.write("")
+                            st.write("")
+                            if st.button("Pagar en Odoo", key=f"pay_btn_{b['id']}", use_container_width=True):
+                                with st.spinner("Registrando pago contable..."):
+                                    try:
+                                        client.register_bill_payment(
+                                            bill_id=b['id'],
+                                            journal_id=sel_j_id,
+                                            payment_date=pay_date.strftime("%Y-%m-%d")
+                                        )
+                                        st.success(f"¡Pago registrado exitosamente para {b['name']}!")
+                                        
+                                        # Registrar en Semáforo local
+                                        if "periodo_actual" in st.session_state:
+                                            p = st.session_state.periodo_actual
+                                            import uuid
+                                            nueva_compra = {
+                                                "id": str(uuid.uuid4()),
+                                                "monto": float(b['amount_residual']),
+                                                "proveedor": b['vendor_name'],
+                                                "fecha": pay_date.strftime("%Y-%m-%d"),
+                                                "nota": f"Pago diferido Odoo Fac: {b['ref'] or b['name']}",
+                                                "modalidad": "Contado"
+                                            }
+                                            p["compras"].append(nueva_compra)
+                                            st.toast("Registrado en compras locales del semáforo.")
+                                        
+                                        st.rerun()
+                                    except Exception as err:
+                                        st.error(f"Error al registrar pago: {str(err)}")
+                    else:
+                        st.info("Carga diarios de pago para asentar el pago.")
+
+    except Exception as e:
+        st.error(f"⚠️ Error al obtener cuentas por pagar de Odoo: {str(e)}")

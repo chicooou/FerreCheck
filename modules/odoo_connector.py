@@ -380,3 +380,31 @@ class OdooRPC:
             vals['location_id'] = location_id
             
         return self._execute('stock.warehouse.orderpoint', 'create', [vals])
+
+    def fetch_unpaid_bills(self) -> List[Dict[str, Any]]:
+        """
+        Obtiene las facturas de proveedor publicadas y no pagadas.
+        """
+        domain = [
+            ('move_type', '=', 'in_invoice'),
+            ('state', '=', 'posted'),
+            ('payment_state', 'in', ['not_paid', 'partial'])
+        ]
+        fields = ['id', 'name', 'invoice_date', 'invoice_date_due', 'partner_id', 'amount_total', 'amount_residual', 'ref']
+        bills = self._execute('account.move', 'search_read', [domain], {'fields': fields, 'order': 'invoice_date_due asc'})
+        
+        formatted_bills = []
+        for bill in bills:
+            partner = bill.get('partner_id')
+            partner_name = partner[1] if isinstance(partner, (list, tuple)) else (partner or "")
+            formatted_bills.append({
+                'id': bill['id'],
+                'name': bill['name'],
+                'invoice_date': bill.get('invoice_date') or "",
+                'invoice_date_due': bill.get('invoice_date_due') or "",
+                'vendor_name': partner_name,
+                'amount_total': bill.get('amount_total', 0.0),
+                'amount_residual': bill.get('amount_residual', 0.0),
+                'ref': bill.get('ref') or ""
+            })
+        return formatted_bills
