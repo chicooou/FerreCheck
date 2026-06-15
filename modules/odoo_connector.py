@@ -89,7 +89,7 @@ class OdooRPC:
         Obtiene una lista ligera de todos los productos (product.product) activos.
         """
         domain = [('active', '=', True)]
-        fields = ['id', 'name', 'default_code']
+        fields = ['id', 'name', 'default_code', 'list_price']
         return self._execute('product.product', 'search_read', [domain], {'fields': fields, 'order': 'name asc'})
 
     def search_product(self, query: str, vendor_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
@@ -101,7 +101,7 @@ class OdooRPC:
         clean_query = query.strip()
         matches = self._execute('product.product', 'search_read', 
                                 [[('default_code', '=', clean_query)]], 
-                                {'fields': ['id', 'name', 'uom_id', 'product_tmpl_id'], 'limit': 1})
+                                {'fields': ['id', 'name', 'uom_id', 'product_tmpl_id', 'list_price', 'default_code'], 'limit': 1})
         if matches:
             return self._format_product_match(matches[0])
 
@@ -114,18 +114,34 @@ class OdooRPC:
                 tmpl_id = supp_matches[0]['product_tmpl_id'][0]
                 prod_matches = self._execute('product.product', 'search_read',
                                              [[('product_tmpl_id', '=', tmpl_id)]],
-                                             {'fields': ['id', 'name', 'uom_id', 'product_tmpl_id'], 'limit': 1})
+                                             {'fields': ['id', 'name', 'uom_id', 'product_tmpl_id', 'list_price', 'default_code'], 'limit': 1})
                 if prod_matches:
                     return self._format_product_match(prod_matches[0])
 
         # 3. Buscar por coincidencia parcial en el nombre
         matches = self._execute('product.product', 'search_read', 
                                 [[('name', 'ilike', clean_query)]], 
-                                {'fields': ['id', 'name', 'uom_id', 'product_tmpl_id'], 'limit': 1})
+                                {'fields': ['id', 'name', 'uom_id', 'product_tmpl_id', 'list_price', 'default_code'], 'limit': 1})
         if matches:
             return self._format_product_match(matches[0])
 
         return None
+
+    def get_product_details(self, product_id: int) -> Dict[str, Any]:
+        """
+        Obtiene los detalles del producto por su ID (product.product).
+        """
+        fields = ['id', 'name', 'uom_id', 'product_tmpl_id', 'list_price', 'default_code']
+        res = self._execute('product.product', 'read', [[product_id]], {'fields': fields})
+        if res:
+            return self._format_product_match(res[0])
+        raise OdooValidationError(f"No se encontró el producto con ID {product_id} en Odoo.")
+
+    def update_product_sale_price(self, product_id: int, new_price: float) -> bool:
+        """
+        Actualiza el precio de venta (list_price) del producto en Odoo.
+        """
+        return self._execute('product.product', 'write', [[product_id], {'list_price': float(new_price)}])
 
     def _format_product_match(self, raw_prod: Dict[str, Any]) -> Dict[str, Any]:
         """Extrae los IDs de las tuplas Many2one para simplificar el uso."""
@@ -136,12 +152,15 @@ class OdooRPC:
             'name': raw_prod['name'],
             'uom_id': uom_raw[0] if isinstance(uom_raw, (list, tuple)) else uom_raw,
             'uom_name': uom_raw[1] if isinstance(uom_raw, (list, tuple)) else "",
-            'product_tmpl_id': tmpl_raw[0] if isinstance(tmpl_raw, (list, tuple)) else tmpl_raw
+            'product_tmpl_id': tmpl_raw[0] if isinstance(tmpl_raw, (list, tuple)) else tmpl_raw,
+            'list_price': raw_prod.get('list_price', 0.0),
+            'default_code': raw_prod.get('default_code') or ""
         }
 
     def create_product(self, name: str, default_code: str, type: str = 'consu', 
                        purchase_tax_ids: Optional[List[int]] = None, vendor_id: Optional[int] = None, 
-                       vendor_price: float = 0.0, vendor_code: Optional[str] = None) -> int:
+                       vendor_price: float = 0.0, vendor_code: Optional[str] = None,
+                       sale_price: Optional[float] = None) -> int:
         """
         Crea un nuevo producto en Odoo (vía product.template).
         Auto-asocia el proveedor y los impuestos por defecto.
@@ -151,7 +170,7 @@ class OdooRPC:
             'name': name.strip(),
             'type': type,
             'default_code': default_code.strip() if default_code else False,
-            'list_price': vendor_price,  # Usar precio de compra como precio base provisional
+            'list_price': sale_price if sale_price is not None else vendor_price,
         }
 
         if purchase_tax_ids:

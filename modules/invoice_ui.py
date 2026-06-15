@@ -423,6 +423,52 @@ def render_step_3(client: OdooRPC):
                     match["default_code"] = selected_p.get("default_code") or ""
                     match["manually_mapped"] = True
 
+        # Gestionar precios de venta (PVP)
+        if selected_action in ["use_existing", "map_existing"] and match.get("product_id"):
+            if "list_price" not in match:
+                cached = next((p for p in st.session_state.inv_odoo_products if p["id"] == match["product_id"]), None)
+                if cached:
+                    match["list_price"] = cached.get("list_price", 0.0)
+                else:
+                    try:
+                        details = client.get_product_details(match["product_id"])
+                        match["list_price"] = details.get("list_price", 0.0)
+                    except Exception:
+                        match["list_price"] = 0.0
+
+            col_empty_p, col_prices_info, col_checkbox_upd = st.columns([0.5, 2.5, 2])
+            with col_prices_info:
+                st.markdown(f"💵 Venta actual: **Q {match['list_price']:.2f}** | Compra: **Q {line['price_unit']:.2f}**")
+            with col_checkbox_upd:
+                update_price = st.checkbox("Actualizar PVP en Odoo", key=f"upd_pr_{i}", value=match.get("update_sale_price", False))
+                match["update_sale_price"] = update_price
+
+            if update_price:
+                col_empty_p2, col_price_input = st.columns([0.5, 4.5])
+                with col_price_input:
+                    suggested_price = match.get("new_sale_price") if match.get("new_sale_price") is not None else match["list_price"]
+                    new_sale_p = st.number_input(
+                        "Nuevo precio de venta al público (Q):",
+                        min_value=0.0,
+                        value=float(suggested_price),
+                        step=0.5,
+                        key=f"new_val_{i}"
+                    )
+                    match["new_sale_price"] = new_sale_p
+
+        elif selected_action == "create_new":
+            col_empty_p, col_new_sale_p = st.columns([0.5, 4.5])
+            with col_new_sale_p:
+                suggested_sale = match.get("new_sale_price") if match.get("new_sale_price") is not None else line["price_unit"] * 1.30
+                new_sale_p = st.number_input(
+                    "Precio de venta al público sugerido (Q):",
+                    min_value=0.0,
+                    value=float(suggested_sale),
+                    step=0.5,
+                    key=f"new_val_create_{i}"
+                )
+                match["new_sale_price"] = new_sale_p
+
         st.markdown("---")
 
     # Botones
@@ -469,7 +515,8 @@ def render_step_4(client: OdooRPC):
                         purchase_tax_ids=default_tax_ids,
                         vendor_id=st.session_state.inv_vendor_id,
                         vendor_price=line["price_unit"],
-                        vendor_code=match["new_code"]
+                        vendor_code=match["new_code"],
+                        sale_price=match.get("new_sale_price")
                     )
                     
                     # Generar regla automática para guardar al final
@@ -493,6 +540,14 @@ def render_step_4(client: OdooRPC):
                     "odoo_product_id": product_id,
                     "odoo_default_code": match["default_code"]
                 })
+
+            # 2. Actualizar precio de venta si se solicitó (para productos existentes)
+            if match.get("action") in ["use_existing", "map_existing"] and match.get("update_sale_price") and match.get("new_sale_price") is not None:
+                with st.spinner(f"Actualizando precio de venta de '{match['odoo_name']}' en Odoo..."):
+                    try:
+                        client.update_product_sale_price(product_id, match["new_sale_price"])
+                    except Exception as e:
+                        st.warning(f"⚠️ No se pudo actualizar el precio de venta para '{match['odoo_name']}': {str(e)}")
             
             # Obtener uom_id (vía lectura si existía)
             uom_id = match.get("uom_id")
