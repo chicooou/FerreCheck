@@ -12,6 +12,12 @@ from modules.dashboard import render_dashboard
 from modules.purchases import render_purchase_form, render_purchase_table
 from modules.daily_sales import render_daily_sale_form, render_daily_sales_table, render_sales_kpis, render_analytics_panel
 from modules.export import render_export_button
+from modules.invoice_ui import render_invoice_tab
+from dotenv import load_dotenv
+
+# Cargar variables de entorno del archivo .env
+load_dotenv()
+
 from modules.history import (
     render_history_view,
     render_close_period_button,
@@ -126,11 +132,12 @@ st.markdown(
 
 # 6. Renderizar Pestañas Principales (Tabs)
 st.markdown(" ")  # Spacer
-tab_dashboard, tab_compras, tab_ventas, tab_historial = st.tabs([
+tab_dashboard, tab_compras, tab_ventas, tab_historial, tab_invoice = st.tabs([
     "📊 Cuadro de Mando (Dashboard)",
     "📝 Registro de Compras",
     "📈 Caja Diaria",
-    "📜 Historial Multi-Período"
+    "📜 Historial Multi-Período",
+    "📸 Factura → Odoo"
 ])
 
 with tab_dashboard:
@@ -161,6 +168,9 @@ with tab_ventas:
 
 with tab_historial:
     render_history_view()
+
+with tab_invoice:
+    render_invoice_tab()
 
 # 7. Guardado Automático (Autosave en disco al finalizar cada render)
 save_current_period(p)
