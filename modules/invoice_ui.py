@@ -39,6 +39,8 @@ def initialize_state():
         st.session_state.inv_product_matches = []
     if "inv_invoice_number" not in st.session_state:
         st.session_state.inv_invoice_number = ""
+    if "inv_invoice_date" not in st.session_state:
+        st.session_state.inv_invoice_date = ""
     if "inv_po_result" not in st.session_state:
         st.session_state.inv_po_result = None
     if "inv_odoo_vendors" not in st.session_state:
@@ -53,6 +55,18 @@ def initialize_state():
         st.session_state.inv_creating_po = False
     if "inv_rules_to_save" not in st.session_state:
         st.session_state.inv_rules_to_save = []
+    
+    # Odoo flow states
+    if "inv_po_confirmed" not in st.session_state:
+        st.session_state.inv_po_confirmed = False
+    if "inv_picking_validated" not in st.session_state:
+        st.session_state.inv_picking_validated = False
+    if "inv_bill_id" not in st.session_state:
+        st.session_state.inv_bill_id = None
+    if "inv_bill_posted" not in st.session_state:
+        st.session_state.inv_bill_posted = False
+    if "inv_payment_registered" not in st.session_state:
+        st.session_state.inv_payment_registered = False
 
 def reset_flow():
     """Limpia el estado del flujo para procesar una nueva factura."""
@@ -64,9 +78,17 @@ def reset_flow():
     st.session_state.inv_edited_lines = []
     st.session_state.inv_product_matches = []
     st.session_state.inv_invoice_number = ""
+    st.session_state.inv_invoice_date = ""
     st.session_state.inv_po_result = None
     st.session_state.inv_creating_po = False
     st.session_state.inv_rules_to_save = []
+    
+    # Reset Odoo states
+    st.session_state.inv_po_confirmed = False
+    st.session_state.inv_picking_validated = False
+    st.session_state.inv_bill_id = None
+    st.session_state.inv_bill_posted = False
+    st.session_state.inv_payment_registered = False
 
 def render_rules_sidebar():
     with st.sidebar:
@@ -153,7 +175,7 @@ def render_invoice_tab():
     elif st.session_state.inv_step == 4:
         render_step_4(client)
     elif st.session_state.inv_step == 5:
-        render_step_5()
+        render_step_5(client)
 
 def render_step_1(client: OdooRPC):
     st.markdown("### Paso 1: Selección de Proveedor y Carga de Imagen")
@@ -189,6 +211,7 @@ def render_step_1(client: OdooRPC):
                 extracted = extract_invoice_data(st.session_state.inv_image_bytes, uploaded_file.type)
                 st.session_state.inv_extracted_data = extracted
                 st.session_state.inv_invoice_number = extracted.get("invoice_number") or ""
+                st.session_state.inv_invoice_date = extracted.get("invoice_date") or ""
                 
                 # Procesar líneas agregando reglas
                 raw_lines = extracted.get("line_items", [])
@@ -232,10 +255,25 @@ def render_step_2():
     st.markdown("### Paso 2: Validación e ingreso de datos")
     st.write(f"**Proveedor seleccionado**: {st.session_state.inv_vendor_name}")
     
-    st.session_state.inv_invoice_number = st.text_input(
-        "Número de Factura / Referencia:", 
-        value=st.session_state.inv_invoice_number
-    )
+    col_num, col_date = st.columns([1, 1])
+    with col_num:
+        st.session_state.inv_invoice_number = st.text_input(
+            "Número de Factura / Referencia:", 
+            value=st.session_state.inv_invoice_number
+        )
+    with col_date:
+        import datetime
+        default_date = datetime.date.today()
+        if st.session_state.inv_invoice_date:
+            try:
+                default_date = datetime.datetime.strptime(st.session_state.inv_invoice_date, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        selected_date = st.date_input(
+            "Fecha de la Factura:",
+            value=default_date
+        )
+        st.session_state.inv_invoice_date = selected_date.strftime("%Y-%m-%d")
 
     st.markdown("#### Líneas de Compra Extraídas")
     st.info("💡 Puedes editar directamente en las celdas. Modifica las descripciones si deseas que se asocien a un producto distinto.")
@@ -599,26 +637,182 @@ def render_step_4(client: OdooRPC):
             st.session_state.inv_step = 3
             st.rerun()
 
-def render_step_5():
+def render_step_5(client: OdooRPC):
     st.markdown("### ¡Orden de Compra Creada Correctamente! 🎉")
     
     result = st.session_state.inv_po_result
-    if result:
-        st.markdown(f"**Referencia Odoo**: `{result['name']}`")
-        st.markdown(f"**Monto Total (RFQ)**: `Q {result['amount_total']:.2f}`")
-        
-        odoo_url = os.getenv("ODOO_URL")
-        web_link = f"{odoo_url}/web#id={result['id']}&model=purchase.order&view_type=form"
-        
-        st.markdown(f"[🔗 Abrir en Odoo]({web_link})")
-        
-        # Ofrecer vincular esta compra con el presupuesto de FerreCheck
-        st.write("---")
-        st.markdown("#### ¿Registrar en el presupuesto local de FerreCheck?")
-        st.write("Si lo deseas, puedes agregar el total de esta compra a tu Semáforo de compras local.")
-        
-        if st.button("📥 Registrar localmente en compras", type="secondary"):
-            # Obtener el período actual de la app principal
+    if not result:
+        st.warning("No hay datos de la Orden de Compra.")
+        if st.button("📸 Procesar nueva factura", type="primary"):
+            reset_flow()
+            st.rerun()
+        return
+
+    st.markdown(f"**Referencia Odoo**: `{result['name']}`")
+    st.markdown(f"**Monto Total**: `Q {result['amount_total']:.2f}`")
+    
+    odoo_url = os.getenv("ODOO_URL")
+    web_link = f"{odoo_url}/web#id={result['id']}&model=purchase.order&view_type=form"
+    st.markdown(f"[🔗 Abrir en Odoo]({web_link})")
+    
+    st.markdown("---")
+    st.subheader("⚙️ Automatización del Flujo de Compra en Odoo")
+    st.write("Completa el flujo contable y de inventario de esta compra en Odoo desde aquí:")
+
+    # Paso 1: Confirmar PO
+    col_p1_text, col_p1_btn = st.columns([3, 1])
+    with col_p1_text:
+        st.write("**Paso 1: Confirmar Orden de Compra**")
+        if st.session_state.inv_po_confirmed:
+            st.success("✔️ Orden confirmada en Odoo.")
+        else:
+            st.info("La orden está en borrador (RFQ).")
+    with col_p1_btn:
+        confirm_btn = st.button("Confirmar PO", disabled=st.session_state.inv_po_confirmed, use_container_width=True)
+        if confirm_btn:
+            with st.spinner("Confirmando orden en Odoo..."):
+                try:
+                    client.confirm_purchase_order(result['id'])
+                    st.session_state.inv_po_confirmed = True
+                    st.success("¡Orden confirmada!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al confirmar PO: {str(e)}")
+
+    # Paso 2: Recibir mercadería
+    col_p2_text, col_p2_btn = st.columns([3, 1])
+    with col_p2_text:
+        st.write("**Paso 2: Recibir Mercadería en Inventario**")
+        if st.session_state.inv_picking_validated:
+            st.success("✔️ Recepción validada al 100% en Odoo.")
+        else:
+            st.info("Espera la confirmación de la orden.")
+    with col_p2_btn:
+        receive_btn = st.button("Recibir Insumos", disabled=(not st.session_state.inv_po_confirmed or st.session_state.inv_picking_validated), use_container_width=True)
+        if receive_btn:
+            with st.spinner("Registrando entrada de mercadería..."):
+                try:
+                    client.validate_incoming_picking(result['id'])
+                    st.session_state.inv_picking_validated = True
+                    st.success("¡Inventario recibido!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al recibir inventario: {str(e)}")
+
+    # Paso 3: Crear Factura
+    st.write("**Paso 3: Crear y Publicar Factura de Proveedor (Bill)**")
+    if st.session_state.inv_bill_id:
+        st.success(f"✔️ Factura contable creada y publicada en Odoo.")
+        bill_link = f"{odoo_url}/web#id={st.session_state.inv_bill_id}&model=account.move&view_type=form"
+        st.markdown(f"[🔗 Ver Factura en Odoo]({bill_link})")
+    else:
+        # Configurar vencimiento
+        col_term, col_bill_btn = st.columns([3, 1])
+        with col_term:
+            plazo_pago = st.selectbox(
+                "Plazo de pago para vencimiento:",
+                options=["Contado", "30 días", "45 días", "60 días"],
+                key="plazo_pago_odoo"
+            )
+            
+            # Calcular fecha de vencimiento
+            import datetime
+            try:
+                inv_date = datetime.datetime.strptime(st.session_state.inv_invoice_date, "%Y-%m-%d").date()
+            except ValueError:
+                inv_date = datetime.date.today()
+                
+            if plazo_pago == "30 días":
+                due_date = inv_date + datetime.timedelta(days=30)
+            elif plazo_pago == "45 días":
+                due_date = inv_date + datetime.timedelta(days=45)
+            elif plazo_pago == "60 días":
+                due_date = inv_date + datetime.timedelta(days=60)
+            else:
+                due_date = inv_date
+                
+            st.caption(f"Fecha factura: **{inv_date}** | Vencimiento calculado: **{due_date}**")
+            
+        with col_bill_btn:
+            st.write("")  # alineación
+            st.write("")
+            bill_btn = st.button("Crear Factura", disabled=(not st.session_state.inv_picking_validated), use_container_width=True)
+            if bill_btn:
+                with st.spinner("Creando y publicando factura en Odoo..."):
+                    try:
+                        bill_id = client.create_and_post_vendor_bill(
+                            po_id=result['id'],
+                            invoice_date=st.session_state.inv_invoice_date,
+                            due_date=due_date.strftime("%Y-%m-%d"),
+                            invoice_ref=st.session_state.inv_invoice_number
+                        )
+                        st.session_state.inv_bill_id = bill_id
+                        st.session_state.inv_bill_posted = True
+                        st.success("¡Factura publicada con éxito!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al facturar: {str(e)}")
+
+    # Paso 4: Registrar Pago
+    st.write("**Paso 4: Registrar Pago Contable (Opcional)**")
+    if st.session_state.inv_payment_registered:
+        st.success("✔️ Pago registrado y asentado en Odoo.")
+    else:
+        # Cargar diarios
+        if "inv_odoo_journals" not in st.session_state or not st.session_state.inv_odoo_journals:
+            try:
+                st.session_state.inv_odoo_journals = client.fetch_payment_journals()
+            except Exception:
+                st.session_state.inv_odoo_journals = []
+                
+        if st.session_state.inv_odoo_journals:
+            col_journal, col_pay_date, col_pay_btn = st.columns([2, 1.5, 1.5])
+            with col_journal:
+                journal_options = {j['id']: f"{j['name']} ({j['code']})" for j in st.session_state.inv_odoo_journals}
+                selected_journal_id = st.selectbox(
+                    "Diario de Pago:",
+                    options=list(journal_options.keys()),
+                    format_func=lambda x: journal_options[x],
+                    key="journal_pago_odoo"
+                )
+            with col_pay_date:
+                pay_date_val = st.date_input("Fecha de Pago:", value=datetime.date.today())
+            with col_pay_btn:
+                st.write("")
+                st.write("")
+                pay_btn = st.button("Registrar Pago", disabled=(not st.session_state.inv_bill_posted), use_container_width=True)
+                if pay_btn:
+                    with st.spinner("Asentando pago en Odoo..."):
+                        try:
+                            client.register_bill_payment(
+                                bill_id=st.session_state.inv_bill_id,
+                                journal_id=selected_journal_id,
+                                payment_date=pay_date_val.strftime("%Y-%m-%d")
+                            )
+                            st.session_state.inv_payment_registered = True
+                            st.success("¡Pago registrado!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al registrar pago: {str(e)}")
+        else:
+            st.info("No se pudieron cargar diarios de pago activos (Banco/Caja) en Odoo.")
+
+    # Registro en Semáforo local
+    st.write("---")
+    st.markdown("#### ¿Registrar en el presupuesto local de FerreCheck?")
+    st.write("Agrega el total de esta compra a tu Semáforo de compras local Emmanuel.")
+    
+    col_reg_term, col_reg_btn = st.columns([3, 1])
+    with col_reg_term:
+        modalidad_local = st.selectbox(
+            "Modalidad de compra local:",
+            options=["Contado", "Crédito"],
+            key="modalidad_local_compra"
+        )
+    with col_reg_btn:
+        st.write("")
+        st.write("")
+        if st.button("📥 Registrar localmente", type="secondary", use_container_width=True):
             if "periodo_actual" in st.session_state:
                 p = st.session_state.periodo_actual
                 import uuid
@@ -626,13 +820,14 @@ def render_step_5():
                     "id": str(uuid.uuid4()),
                     "monto": float(result['amount_total']),
                     "proveedor": st.session_state.inv_vendor_name,
-                    "fecha": datetime.date.today().strftime("%Y-%m-%d"),
-                    "nota": f"Importado de Odoo PO {result['name']}",
-                    "modalidad": "Contado"
+                    "fecha": st.session_state.inv_invoice_date if st.session_state.inv_invoice_date else datetime.date.today().strftime("%Y-%m-%d"),
+                    "nota": f"Importado de Odoo PO {result['name']} | Fac: {st.session_state.inv_invoice_number}",
+                    "modalidad": modalidad_local
                 }
                 p["compras"].append(nueva_compra)
                 st.success(f"Guardado en compras del mes local: {result['name']}")
 
+    st.write("---")
     if st.button("📸 Procesar nueva factura", type="primary"):
         reset_flow()
         st.rerun()

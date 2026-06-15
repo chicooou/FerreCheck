@@ -241,3 +241,115 @@ class OdooRPC:
             'name': po_info[0]['name'] if po_info else f"PO-{po_id}",
             'amount_total': po_info[0]['amount_total'] if po_info else 0.0
         }
+
+    def confirm_purchase_order(self, po_id: int) -> bool:
+        """
+        Confirma la orden de compra (pasa de RFQ a Purchase Order).
+        """
+        self._execute('purchase.order', 'button_confirm', [[po_id]])
+        return True
+
+    def validate_incoming_picking(self, po_id: int) -> bool:
+        """
+        Busca el albarán/picking de inventario asociado a la PO y lo valida al 100%.
+        """
+        # 1. Buscar picking asociado a la PO que no esté en estado 'done' o 'cancel'
+        pickings = self._execute('stock.picking', 'search_read', 
+                                 [[('purchase_id', '=', po_id), ('state', 'not in', ['done', 'cancel'])]], 
+                                 {'fields': ['id', 'name']})
+        if not pickings:
+            return True
+            
+        picking_ids = [p['id'] for p in pickings]
+        
+        # 2. Escribir la cantidad realizada (quantity) igual a la cantidad demandada (product_uom_qty)
+        # En Odoo 17/18/19, la cantidad realizada en stock.move se guarda en 'quantity'
+        moves = self._execute('stock.move', 'search_read',
+                              [[('picking_id', 'in', picking_ids)]],
+                              {'fields': ['id', 'product_uom_qty']})
+        for move in moves:
+            self._execute('stock.move', 'write', [[move['id']], {'quantity': float(move['product_uom_qty'])}])
+            
+        # 3. Validar el picking
+        self._execute('stock.picking', 'button_validate', [picking_ids])
+        return True
+
+    def create_and_post_vendor_bill(self, po_id: int, invoice_date: str, due_date: str, invoice_ref: str) -> int:
+        """
+        Crea la factura del proveedor (bill) asociada al PO, establece fechas y la publica (post).
+        Retorna el ID del move de factura creado.
+        """
+        # 1. Crear el bill desde el PO
+        action = self._execute('purchase.order', 'action_create_invoice', [[po_id]])
+        
+        # 2. Buscar la factura asociada (account.move)
+        bill_id = action.get('res_id')
+        if not bill_id:
+            po_info = self._execute('purchase.order', 'read', [[po_id]], {'fields': ['name']})
+            po_name = po_info[0]['name'] if po_info else ""
+            bills = self._execute('account.move', 'search', [[('invoice_origin', '=', po_name)]])
+            if bills:
+                bill_id = bills[0]
+                
+        if not bill_id:
+            raise OdooValidationError("No se pudo encontrar o generar la factura del proveedor en Odoo.")
+            
+        # 3. Actualizar fechas y referencia de la factura
+        write_vals = {
+            'invoice_date': invoice_date,
+            'invoice_date_due': due_date,
+            'ref': invoice_ref.strip() if invoice_ref else False
+        }
+        self._execute('account.move', 'write', [[bill_id], write_vals])
+        
+        # 4. Publicar la factura
+        self._execute('account.move', 'action_post', [[bill_id]])
+        return bill_id
+
+    def fetch_payment_journals(self) -> List[Dict[str, Any]]:
+        """
+        Obtiene los diarios contables activos tipo banco o caja de Odoo.
+        """
+        domain = [('type', 'in', ['bank', 'cash']), ('active', '=', True)]
+        fields = ['id', 'name', 'type', 'code']
+        return self._execute('account.journal', 'search_read', [domain], {'fields': fields})
+
+    def register_bill_payment(self, bill_id: int, journal_id: int, payment_date: str) -> bool:
+        """
+        Registra el pago manual de la factura de proveedor.
+        """
+        # 1. Leer detalles de la factura para saber el total y la moneda
+        bill = self._execute('account.move', 'read', [[bill_id]], {'fields': ['amount_residual', 'currency_id']})
+        if not bill:
+            raise OdooValidationError("No se encontró la factura a pagar.")
+            
+        amount = bill[0]['amount_residual']
+        currency_id = bill[0]['currency_id'][0] if isinstance(bill[0]['currency_id'], (list, tuple)) else bill[0]['currency_id']
+        
+        # 2. Buscar el método de pago por defecto para el diario
+        journal = self._execute('account.journal', 'read', [[journal_id]], {'fields': ['outbound_payment_method_line_ids']})
+        pay_method_line_id = False
+        if journal and journal[0].get('outbound_payment_method_line_ids'):
+            pay_method_line_id = journal[0]['outbound_payment_method_line_ids'][0]
+            
+        wizard_vals = {
+            'payment_date': payment_date,
+            'amount': float(amount),
+            'payment_type': 'outbound',
+            'partner_type': 'supplier',
+            'journal_id': journal_id,
+            'currency_id': currency_id
+        }
+        if pay_method_line_id:
+            wizard_vals['payment_method_line_id'] = pay_method_line_id
+            
+        # 3. Crear el wizard de registro de pago
+        context = {
+            'active_model': 'account.move',
+            'active_ids': [bill_id]
+        }
+        wizard_id = self._execute('account.payment.register', 'create', [wizard_vals], {'context': context})
+        
+        # 4. Asentar los pagos
+        self._execute('account.payment.register', 'action_create_payments', [[wizard_id]])
+        return True
