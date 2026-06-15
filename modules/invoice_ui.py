@@ -465,7 +465,7 @@ def render_step_4(client: OdooRPC):
                     product_id = client.create_product(
                         name=match["new_name"],
                         default_code=match["new_code"],
-                        detailed_type='product',
+                        type='consu',
                         purchase_tax_ids=default_tax_ids,
                         vendor_id=st.session_state.inv_vendor_id,
                         vendor_price=line["price_unit"],

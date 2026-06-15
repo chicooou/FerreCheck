@@ -139,7 +139,7 @@ class OdooRPC:
             'product_tmpl_id': tmpl_raw[0] if isinstance(tmpl_raw, (list, tuple)) else tmpl_raw
         }
 
-    def create_product(self, name: str, default_code: str, detailed_type: str = 'product', 
+    def create_product(self, name: str, default_code: str, type: str = 'consu', 
                        purchase_tax_ids: Optional[List[int]] = None, vendor_id: Optional[int] = None, 
                        vendor_price: float = 0.0, vendor_code: Optional[str] = None) -> int:
         """
@@ -149,7 +149,7 @@ class OdooRPC:
         """
         vals: Dict[str, Any] = {
             'name': name.strip(),
-            'detailed_type': detailed_type,
+            'type': type,
             'default_code': default_code.strip() if default_code else False,
             'list_price': vendor_price,  # Usar precio de compra como precio base provisional
         }
