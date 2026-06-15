@@ -103,3 +103,26 @@ def create_or_update_rule(vendor_id: int, vendor_name: str, original_description
 
     save_rules(rules)
     return rule_to_return
+
+PROCESSED_INVOICES_PATH = os.path.join("data", "processed_invoices.json")
+
+def load_processed_bill_ids() -> List[int]:
+    """Carga la lista de IDs de facturas de Odoo creadas por la aplicación."""
+    if not os.path.exists(PROCESSED_INVOICES_PATH):
+        os.makedirs(os.path.dirname(PROCESSED_INVOICES_PATH), exist_ok=True)
+        with open(PROCESSED_INVOICES_PATH, "w", encoding="utf-8") as f:
+            json.dump([], f)
+        return []
+    try:
+        with open(PROCESSED_INVOICES_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def register_processed_bill_id(bill_id: int) -> None:
+    """Registra el ID de la factura creada para su posterior seguimiento."""
+    ids = load_processed_bill_ids()
+    if bill_id not in ids:
+        ids.append(bill_id)
+        with open(PROCESSED_INVOICES_PATH, "w", encoding="utf-8") as f:
+            json.dump(ids, f, indent=4)

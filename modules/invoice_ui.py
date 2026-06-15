@@ -9,7 +9,7 @@ import datetime
 from typing import Dict, Any, List, Optional
 from modules.odoo_connector import OdooRPC, OdooAuthError, OdooConnectionError, OdooValidationError
 from modules.invoice_ocr import extract_invoice_data
-from modules.rules_matrix import find_matching_rule, create_or_update_rule
+from modules.rules_matrix import find_matching_rule, create_or_update_rule, load_processed_bill_ids, register_processed_bill_id
 
 def get_odoo_client() -> Optional[OdooRPC]:
     """Crea una instancia del cliente Odoo utilizando las variables del entorno o st.secrets."""
@@ -761,6 +761,7 @@ def render_step_5(client: OdooRPC):
                         st.session_state.inv_bill_id = bill_id
                         st.session_state.inv_bill_posted = True
                         st.session_state.inv_payment_term = plazo_pago
+                        register_processed_bill_id(bill_id)
                         st.success("¡Factura publicada con éxito!")
                         st.rerun()
                     except Exception as e:
@@ -862,10 +863,14 @@ def render_cuentas_por_pagar(client: OdooRPC):
 
     try:
         with st.spinner("Obteniendo facturas pendientes de Odoo..."):
-            bills = client.fetch_unpaid_bills()
+            all_bills = client.fetch_unpaid_bills()
+            
+        # Filtrar facturas creadas por la aplicación
+        processed_ids = load_processed_bill_ids()
+        bills = [b for b in all_bills if b["id"] in processed_ids]
             
         if not bills:
-            st.success("🎉 No tienes facturas pendientes de pago en Odoo.")
+            st.success("🎉 No tienes facturas pendientes de pago registradas por esta app en Odoo.")
             return
 
         # Calcular total pendiente
