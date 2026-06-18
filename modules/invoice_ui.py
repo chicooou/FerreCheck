@@ -392,19 +392,25 @@ def render_step_3(client: OdooRPC):
                 st.warning("⚠️ No se encontró coincidencia en Odoo.")
                 
         with col_action:
-            action_options = ["use_existing", "create_new", "map_existing"]
+            action_options = ["use_existing", "create_new", "map_existing", "ignore"]
             action_labels = {
-                "use_existing": "Usar Match Sugerido" if match["found"] else "Sin coincidencia",
+                "use_existing": "Usar Match Sugerido",
                 "create_new": "Crear Nuevo",
-                "map_existing": "Buscar Catálogo"
+                "map_existing": "Buscar Catálogo",
+                "ignore": "Ignorar / Eliminar Línea"
             }
+            
+            if not match["found"]:
+                # Si no se encontró match, no tiene sentido usar el sugerido
+                action_options.remove("use_existing")
             
             # Determinar el índice por defecto según el estado actual de match["action"]
             current_action = match.get("action")
-            if current_action in action_options:
-                idx_default = action_options.index(current_action)
-            else:
-                idx_default = 0 if match["found"] else 1
+            if current_action not in action_options:
+                current_action = action_options[0]
+                match["action"] = current_action
+                
+            idx_default = action_options.index(current_action)
                 
             selected_action = st.selectbox(
                 "Acción:",
@@ -545,6 +551,10 @@ def render_step_4(client: OdooRPC):
 
         for i, match in enumerate(st.session_state.inv_product_matches):
             line = st.session_state.inv_edited_lines[i]
+            
+            if match.get("action") == "ignore":
+                continue
+                
             product_id = match["product_id"]
 
             # 1. Crear producto si se seleccionó "create_new"
@@ -619,6 +629,9 @@ def render_step_4(client: OdooRPC):
             })
 
         # 2. Crear Orden de Compra
+        if not po_lines:
+            raise Exception("No hay líneas válidas para procesar. Todas las líneas fueron descartadas o ignoradas.")
+            
         with st.spinner("Creando Orden de Compra (RFQ) en Odoo..."):
             po_result = client.create_purchase_order(
                 vendor_id=st.session_state.inv_vendor_id,
