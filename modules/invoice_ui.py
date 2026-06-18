@@ -828,32 +828,36 @@ def render_step_5(client: OdooRPC):
         st.info("ℹ️ Esta factura tiene una fecha anterior a hoy. Se asume que ya está registrada en el Semáforo local (Google Sheet), por lo que solo se procesará en Odoo.")
     else:
         st.markdown("#### ¿Registrar en el presupuesto local de FerreCheck?")
-        st.write("Agrega el total de esta compra a tu Semáforo de compras local Emmanuel.")
         
-        col_reg_term, col_reg_btn = st.columns([3, 1])
-        with col_reg_term:
-            modalidad_local = st.selectbox(
-                "Modalidad de compra local:",
-                options=["Contado", "Crédito"],
-                key="modalidad_local_compra"
-            )
-        with col_reg_btn:
-            st.write("")
-            st.write("")
-            if st.button("📥 Registrar localmente", type="secondary", use_container_width=True):
-                if "periodo_actual" in st.session_state:
-                    p = st.session_state.periodo_actual
-                    import uuid
-                    nueva_compra = {
-                        "id": str(uuid.uuid4()),
-                        "monto": float(result['amount_total']),
-                        "proveedor": st.session_state.inv_vendor_name,
-                        "fecha": st.session_state.inv_invoice_date if st.session_state.inv_invoice_date else datetime.date.today().strftime("%Y-%m-%d"),
-                        "nota": f"Importado de Odoo PO {result['name']} | Fac: {st.session_state.inv_invoice_number}",
-                        "modalidad": modalidad_local
-                    }
-                    p["compras"].append(nueva_compra)
-                    st.success(f"Guardado en compras del mes local: {result['name']}")
+        # Mapear la modalidad seleccionada en Odoo al formato local
+        term_selected = st.session_state.get("inv_payment_term", "Contado")
+        if term_selected == "Contado":
+            modalidad_local = "Contado"
+        else:
+            modalidad_local = f"Crédito {term_selected}"
+            
+        st.write(f"Agrega el total de esta compra a tu Semáforo de compras local Emmanuel bajo la modalidad **{modalidad_local}** (según tu selección para Odoo).")
+        
+        if st.button("📥 Registrar localmente", type="secondary", use_container_width=True):
+            if "periodo_actual" in st.session_state:
+                p = st.session_state.periodo_actual
+                import uuid
+                nueva_compra = {
+                    "id": str(uuid.uuid4()),
+                    "monto": float(result['amount_total']),
+                    "proveedor": st.session_state.inv_vendor_name,
+                    "fecha": st.session_state.inv_invoice_date if st.session_state.inv_invoice_date else datetime.date.today().strftime("%Y-%m-%d"),
+                    "nota": f"Importado de Odoo PO {result['name']} | Fac: {st.session_state.inv_invoice_number}",
+                    "modalidad": modalidad_local
+                }
+                p["compras"].append(nueva_compra)
+                
+                from modules.sheets import is_sheets_active, sync_all_purchases_to_sheets
+                if is_sheets_active():
+                    with st.spinner("Sincronizando compra con Google Sheets..."):
+                        sync_all_purchases_to_sheets(p["compras"], p)
+                        
+                st.success(f"Guardado en compras del mes local: {result['name']} ({modalidad_local})")
 
     st.write("---")
     if st.button("📸 Procesar nueva factura", type="primary"):
