@@ -192,7 +192,8 @@ def render_step_1(client: OdooRPC):
         "Selecciona el Proveedor:",
         options=list(vendor_options.keys()),
         format_func=lambda x: vendor_options[x],
-        index=0 if not st.session_state.inv_vendor_id else list(vendor_options.keys()).index(st.session_state.inv_vendor_id)
+        index=None if not st.session_state.inv_vendor_id else list(vendor_options.keys()).index(st.session_state.inv_vendor_id),
+        placeholder="⚠️ Elige el proveedor de esta factura..."
     )
 
     st.write("📸 Toma una foto o sube la factura de compra:")
@@ -215,7 +216,8 @@ def render_step_1(client: OdooRPC):
         st.session_state.inv_image_bytes = file_bytes
         st.image(file_bytes, caption="Factura cargada", width=350)
 
-    if st.button("🔍 Extraer Datos con IA", type="primary", disabled=(not final_file)):
+    btn_disabled = (not final_file) or (selected_vendor_id is None)
+    if st.button("🔍 Extraer Datos con IA", type="primary", disabled=btn_disabled):
         st.session_state.inv_vendor_id = selected_vendor_id
         st.session_state.inv_vendor_name = vendor_options[selected_vendor_id]
         
