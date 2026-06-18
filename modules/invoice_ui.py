@@ -195,24 +195,33 @@ def render_step_1(client: OdooRPC):
         index=0 if not st.session_state.inv_vendor_id else list(vendor_options.keys()).index(st.session_state.inv_vendor_id)
     )
 
-    uploaded_file = st.file_uploader(
-        "Toma una foto o sube la factura de compra:",
-        type=["jpg", "jpeg", "png", "webp"],
-        help="Optimizado para capturas desde cámara de celular."
-    )
+    st.write("📸 Toma una foto o sube la factura de compra:")
+    col_cam, col_file = st.columns([1, 1])
+    
+    with col_cam:
+        cam_photo = st.camera_input("📷 Tomar foto (Ideal celular)")
+        
+    with col_file:
+        uploaded_file = st.file_uploader(
+            "📁 Subir archivo",
+            type=["jpg", "jpeg", "png", "webp"],
+            help="Selecciona un archivo de tu galería o PC."
+        )
 
-    if uploaded_file:
-        file_bytes = uploaded_file.read()
+    final_file = cam_photo or uploaded_file
+
+    if final_file:
+        file_bytes = final_file.read()
         st.session_state.inv_image_bytes = file_bytes
         st.image(file_bytes, caption="Factura cargada", width=350)
 
-    if st.button("🔍 Extraer Datos con IA", type="primary", disabled=(not uploaded_file)):
+    if st.button("🔍 Extraer Datos con IA", type="primary", disabled=(not final_file)):
         st.session_state.inv_vendor_id = selected_vendor_id
         st.session_state.inv_vendor_name = vendor_options[selected_vendor_id]
         
         try:
             with st.spinner("La IA (Gemini) está leyendo tu factura..."):
-                extracted = extract_invoice_data(st.session_state.inv_image_bytes, uploaded_file.type)
+                extracted = extract_invoice_data(st.session_state.inv_image_bytes, final_file.type)
                 st.session_state.inv_extracted_data = extracted
                 st.session_state.inv_invoice_number = extracted.get("invoice_number") or ""
                 st.session_state.inv_invoice_date = extracted.get("invoice_date") or ""
@@ -374,150 +383,154 @@ def render_step_3(client: OdooRPC):
     # Mostrar preview y permitir modificaciones
     st.markdown("#### Coincidencias encontradas")
     
-    has_creations = False
-    for i, match in enumerate(st.session_state.inv_product_matches):
-        line = st.session_state.inv_edited_lines[i]
+    @st.fragment
+    def render_match_item(i: int, match: dict, line: dict, client):
+            col_desc, col_match, col_action = st.columns([2, 2, 1])
         
-        col_desc, col_match, col_action = st.columns([2, 2, 1])
-        
-        with col_desc:
-            st.write(f"**Línea**: `{line['description']}` (Cant: {line['quantity']} | Unit: Q {line['price_unit']:.2f})")
+            with col_desc:
+                st.write(f"**Línea**: `{line['description']}` (Cant: {line['quantity']} | Unit: Q {line['price_unit']:.2f})")
             
-        with col_match:
-            if match["found"] and match.get("action", "use_existing") == "use_existing":
-                st.success(f"✅ Odoo Match: **[{match['default_code']}] {match['odoo_name']}**")
-            elif match.get("action") == "map_existing" and match.get("manually_mapped"):
-                st.info(f"🔗 Vinculado a: **[{match['default_code']}] {match['odoo_name']}**")
-            else:
-                st.warning("⚠️ No se encontró coincidencia en Odoo.")
-                
-        with col_action:
-            action_options = ["use_existing", "create_new", "map_existing", "ignore"]
-            action_labels = {
-                "use_existing": "Usar Match Sugerido",
-                "create_new": "Crear Nuevo",
-                "map_existing": "Buscar Catálogo",
-                "ignore": "Ignorar / Eliminar Línea"
-            }
-            
-            if not match["found"]:
-                # Si no se encontró match, no tiene sentido usar el sugerido
-                action_options.remove("use_existing")
-            
-            # Determinar el índice por defecto según el estado actual de match["action"]
-            current_action = match.get("action")
-            if current_action not in action_options:
-                current_action = action_options[0]
-                match["action"] = current_action
-                
-            idx_default = action_options.index(current_action)
-                
-            selected_action = st.selectbox(
-                "Acción:",
-                options=action_options,
-                format_func=lambda x: action_labels[x],
-                index=idx_default,
-                key=f"act_{i}"
-            )
-            match["action"] = selected_action
-
-        if selected_action == "create_new":
-            has_creations = True
-            # Configurar datos del nuevo producto
-            col_empty, col_new_name, col_new_code = st.columns([0.5, 2.5, 2])
-            with col_new_name:
-                match["new_name"] = st.text_input(
-                    "Nombre en Odoo:", 
-                    value=match.get("new_name") or match["odoo_name"] or match["line_desc"], 
-                    key=f"new_name_{i}"
-                )
-            with col_new_code:
-                match["new_code"] = st.text_input(
-                    "Código Interno / Ref:", 
-                    value=match.get("new_code") or match["default_code"], 
-                    key=f"new_code_{i}"
-                )
-        elif selected_action == "map_existing":
-            # Autocompletado del catálogo
-            products = st.session_state.inv_odoo_products
-            def get_prod_label(p):
-                code = p.get("default_code")
-                if code:
-                    return f"{p['name']} [{code}]"
-                return p['name']
-            
-            col_empty, col_search_prod = st.columns([0.5, 4.5])
-            with col_search_prod:
-                # Buscar índice del producto ya seleccionado si existe y fue mapeado manualmente
-                current_id = match.get("product_id")
-                default_idx = None
-                if current_id and match.get("manually_mapped"):
-                    for idx, p in enumerate(products):
-                        if p["id"] == current_id:
-                            default_idx = idx
-                            break
-                            
-                selected_p = st.selectbox(
-                    "Selecciona el producto existente de Odoo:",
-                    options=products,
-                    format_func=get_prod_label,
-                    index=default_idx,
-                    placeholder="Escribe para buscar...",
-                    key=f"map_p_{i}"
-                )
-                if selected_p:
-                    match["product_id"] = selected_p["id"]
-                    match["odoo_name"] = selected_p["name"]
-                    match["default_code"] = selected_p.get("default_code") or ""
-                    match["manually_mapped"] = True
-
-        # Gestionar precios de venta (PVP)
-        if selected_action in ["use_existing", "map_existing"] and match.get("product_id"):
-            if "list_price" not in match:
-                cached = next((p for p in st.session_state.inv_odoo_products if p["id"] == match["product_id"]), None)
-                if cached:
-                    match["list_price"] = cached.get("list_price", 0.0)
+            with col_match:
+                if match["found"] and match.get("action", "use_existing") == "use_existing":
+                    st.success(f"✅ Odoo Match: **[{match['default_code']}] {match['odoo_name']}**")
+                elif match.get("action") == "map_existing" and match.get("manually_mapped"):
+                    st.info(f"🔗 Vinculado a: **[{match['default_code']}] {match['odoo_name']}**")
                 else:
-                    try:
-                        details = client.get_product_details(match["product_id"])
-                        match["list_price"] = details.get("list_price", 0.0)
-                    except Exception:
-                        match["list_price"] = 0.0
+                    st.warning("⚠️ No se encontró coincidencia en Odoo.")
+                
+            with col_action:
+                action_options = ["use_existing", "create_new", "map_existing", "ignore"]
+                action_labels = {
+                    "use_existing": "Usar Match Sugerido",
+                    "create_new": "Crear Nuevo",
+                    "map_existing": "Buscar Catálogo",
+                    "ignore": "Ignorar / Eliminar Línea"
+                }
+            
+                if not match["found"]:
+                    # Si no se encontró match, no tiene sentido usar el sugerido
+                    action_options.remove("use_existing")
+            
+                # Determinar el índice por defecto según el estado actual de match["action"]
+                current_action = match.get("action")
+                if current_action not in action_options:
+                    current_action = action_options[0]
+                    match["action"] = current_action
+                
+                idx_default = action_options.index(current_action)
+                
+                selected_action = st.selectbox(
+                    "Acción:",
+                    options=action_options,
+                    format_func=lambda x: action_labels[x],
+                    index=idx_default,
+                    key=f"act_{i}"
+                )
+                match["action"] = selected_action
 
-            col_empty_p, col_prices_info, col_checkbox_upd = st.columns([0.5, 2.5, 2])
-            with col_prices_info:
-                st.markdown(f"💵 Venta actual: **Q {match['list_price']:.2f}** | Compra: **Q {line['price_unit']:.2f}**")
-            with col_checkbox_upd:
-                update_price = st.checkbox("Actualizar PVP en Odoo", key=f"upd_pr_{i}", value=match.get("update_sale_price", False))
-                match["update_sale_price"] = update_price
+            if selected_action == "create_new":
+                has_creations = True
+                # Configurar datos del nuevo producto
+                col_empty, col_new_name, col_new_code = st.columns([0.5, 2.5, 2])
+                with col_new_name:
+                    match["new_name"] = st.text_input(
+                        "Nombre en Odoo:", 
+                        value=match.get("new_name") or match["odoo_name"] or match["line_desc"], 
+                        key=f"new_name_{i}"
+                    )
+                with col_new_code:
+                    match["new_code"] = st.text_input(
+                        "Código Interno / Ref:", 
+                        value=match.get("new_code") or match["default_code"], 
+                        key=f"new_code_{i}"
+                    )
+            elif selected_action == "map_existing":
+                # Autocompletado del catálogo
+                products = st.session_state.inv_odoo_products
+                def get_prod_label(p):
+                    code = p.get("default_code")
+                    if code:
+                        return f"{p['name']} [{code}]"
+                    return p['name']
+            
+                col_empty, col_search_prod = st.columns([0.5, 4.5])
+                with col_search_prod:
+                    # Buscar índice del producto ya seleccionado si existe y fue mapeado manualmente
+                    current_id = match.get("product_id")
+                    default_idx = None
+                    if current_id and match.get("manually_mapped"):
+                        for idx, p in enumerate(products):
+                            if p["id"] == current_id:
+                                default_idx = idx
+                                break
+                            
+                    selected_p = st.selectbox(
+                        "Selecciona el producto existente de Odoo:",
+                        options=products,
+                        format_func=get_prod_label,
+                        index=default_idx,
+                        placeholder="Escribe para buscar...",
+                        key=f"map_p_{i}"
+                    )
+                    if selected_p:
+                        match["product_id"] = selected_p["id"]
+                        match["odoo_name"] = selected_p["name"]
+                        match["default_code"] = selected_p.get("default_code") or ""
+                        match["manually_mapped"] = True
 
-            if update_price:
-                col_empty_p2, col_price_input = st.columns([0.5, 4.5])
-                with col_price_input:
-                    suggested_price = match.get("new_sale_price") if match.get("new_sale_price") is not None else match["list_price"]
+            # Gestionar precios de venta (PVP)
+            if selected_action in ["use_existing", "map_existing"] and match.get("product_id"):
+                if "list_price" not in match:
+                    cached = next((p for p in st.session_state.inv_odoo_products if p["id"] == match["product_id"]), None)
+                    if cached:
+                        match["list_price"] = cached.get("list_price", 0.0)
+                    else:
+                        try:
+                            details = client.get_product_details(match["product_id"])
+                            match["list_price"] = details.get("list_price", 0.0)
+                        except Exception:
+                            match["list_price"] = 0.0
+
+                col_empty_p, col_prices_info, col_checkbox_upd = st.columns([0.5, 2.5, 2])
+                with col_prices_info:
+                    st.markdown(f"💵 Venta actual: **Q {match['list_price']:.2f}** | Compra: **Q {line['price_unit']:.2f}**")
+                with col_checkbox_upd:
+                    update_price = st.checkbox("Actualizar PVP en Odoo", key=f"upd_pr_{i}", value=match.get("update_sale_price", False))
+                    match["update_sale_price"] = update_price
+
+                if update_price:
+                    col_empty_p2, col_price_input = st.columns([0.5, 4.5])
+                    with col_price_input:
+                        suggested_price = match.get("new_sale_price") if match.get("new_sale_price") is not None else match["list_price"]
+                        new_sale_p = st.number_input(
+                            "Nuevo precio de venta al público (Q):",
+                            min_value=0.0,
+                            value=float(suggested_price),
+                            step=0.5,
+                            key=f"new_val_{i}"
+                        )
+                        match["new_sale_price"] = new_sale_p
+
+            elif selected_action == "create_new":
+                col_empty_p, col_new_sale_p = st.columns([0.5, 4.5])
+                with col_new_sale_p:
+                    suggested_sale = match.get("new_sale_price") if match.get("new_sale_price") is not None else line["price_unit"] * 1.30
                     new_sale_p = st.number_input(
-                        "Nuevo precio de venta al público (Q):",
+                        "Precio de venta al público sugerido (Q):",
                         min_value=0.0,
-                        value=float(suggested_price),
+                        value=float(suggested_sale),
                         step=0.5,
-                        key=f"new_val_{i}"
+                        key=f"new_val_create_{i}"
                     )
                     match["new_sale_price"] = new_sale_p
 
-        elif selected_action == "create_new":
-            col_empty_p, col_new_sale_p = st.columns([0.5, 4.5])
-            with col_new_sale_p:
-                suggested_sale = match.get("new_sale_price") if match.get("new_sale_price") is not None else line["price_unit"] * 1.30
-                new_sale_p = st.number_input(
-                    "Precio de venta al público sugerido (Q):",
-                    min_value=0.0,
-                    value=float(suggested_sale),
-                    step=0.5,
-                    key=f"new_val_create_{i}"
-                )
-                match["new_sale_price"] = new_sale_p
+            st.markdown("---")
 
-        st.markdown("---")
+
+    has_creations = any(m.get("action") == "create_new" for m in st.session_state.inv_product_matches)
+    for i, match in enumerate(st.session_state.inv_product_matches):
+        line = st.session_state.inv_edited_lines[i]
+        render_match_item(i, match, line, client)
 
     # Botones
     col_prev, col_next = st.columns([1, 1])
