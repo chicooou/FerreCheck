@@ -208,8 +208,6 @@ def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo")
                     
         for c in compras:
             modalidad_val = c.get("modalidad", "Contado")
-            monto_float = float(c["monto"])
-            monto_str = f"{monto_float:.2f}".replace(".", ",")
             
             new_rows.append([
                 c["id"],
@@ -217,7 +215,7 @@ def sync_all_purchases_to_sheets(compras: list, p: dict, estado: str = "Activo")
                 int(p["mes"]),
                 c["fecha"],
                 c["proveedor"],
-                monto_str,
+                float(c["monto"]),
                 c["nota"],
                 estado,
                 modalidad_val
