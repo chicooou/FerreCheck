@@ -91,6 +91,70 @@ def reset_flow():
     st.session_state.inv_bill_posted = False
     st.session_state.inv_payment_registered = False
 
+import json
+import base64
+import os
+
+DRAFT_FILE = "data/draft_invoice.json"
+
+def save_draft():
+    """Guarda el estado actual de la factura en un archivo JSON local."""
+    try:
+        os.makedirs("data", exist_ok=True)
+        img_b64 = None
+        if st.session_state.inv_image_bytes:
+            img_b64 = base64.b64encode(st.session_state.inv_image_bytes).decode('utf-8')
+            
+        draft_data = {
+            "inv_step": st.session_state.inv_step,
+            "inv_vendor_id": st.session_state.inv_vendor_id,
+            "inv_vendor_name": st.session_state.inv_vendor_name,
+            "inv_image_bytes_b64": img_b64,
+            "inv_extracted_data": st.session_state.inv_extracted_data,
+            "inv_edited_lines": st.session_state.inv_edited_lines,
+            "inv_product_matches": st.session_state.inv_product_matches,
+            "inv_invoice_number": st.session_state.inv_invoice_number,
+            "inv_invoice_date": st.session_state.inv_invoice_date
+        }
+        with open(DRAFT_FILE, "w", encoding="utf-8") as f:
+            json.dump(draft_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error saving draft: {e}")
+
+def load_draft():
+    """Carga el borrador guardado en el session_state."""
+    try:
+        if os.path.exists(DRAFT_FILE):
+            with open(DRAFT_FILE, "r", encoding="utf-8") as f:
+                draft_data = json.load(f)
+                
+            st.session_state.inv_step = draft_data.get("inv_step", 1)
+            st.session_state.inv_vendor_id = draft_data.get("inv_vendor_id")
+            st.session_state.inv_vendor_name = draft_data.get("inv_vendor_name", "")
+            
+            if draft_data.get("inv_image_bytes_b64"):
+                st.session_state.inv_image_bytes = base64.b64decode(draft_data["inv_image_bytes_b64"])
+            else:
+                st.session_state.inv_image_bytes = None
+                
+            st.session_state.inv_extracted_data = draft_data.get("inv_extracted_data", {})
+            st.session_state.inv_edited_lines = draft_data.get("inv_edited_lines", [])
+            st.session_state.inv_product_matches = draft_data.get("inv_product_matches", [])
+            st.session_state.inv_invoice_number = draft_data.get("inv_invoice_number", "")
+            st.session_state.inv_invoice_date = draft_data.get("inv_invoice_date", "")
+            return True
+    except Exception as e:
+        print(f"Error loading draft: {e}")
+    return False
+
+def clear_draft():
+    """Elimina el borrador si la factura fue procesada con éxito."""
+    try:
+        if os.path.exists(DRAFT_FILE):
+            os.remove(DRAFT_FILE)
+    except Exception:
+        pass
+
 def render_rules_sidebar():
     with st.sidebar:
         st.markdown("---")
@@ -182,7 +246,16 @@ def render_invoice_tab():
         render_cuentas_por_pagar(client)
 
 def render_step_1(client: OdooRPC):
-    st.markdown("### Paso 1: Selección de Proveedor y Carga de Imagen")
+    st.markdown("### Paso 1: Extracción de Datos")
+    
+    if os.path.exists(DRAFT_FILE) and st.session_state.inv_step == 1:
+        st.info("Hay un borrador guardado de una sesión anterior.")
+        if st.button("📝 Recuperar Borrador Anterior", type="primary"):
+            if load_draft():
+                st.success("Borrador recuperado con éxito.")
+                st.rerun()
+
+    st.write("Carga de Imagen")
     
     # Dropdown de proveedores
     vendors = st.session_state.inv_odoo_vendors
@@ -337,50 +410,58 @@ def render_step_2():
                 })
             st.session_state.inv_edited_lines = new_lines
             st.session_state.inv_step = 3
+            save_draft()
             st.rerun()
 
 def render_step_3(client: OdooRPC):
     st.markdown("### Paso 3: Vinculación de Productos en Odoo")
     st.write("Verificando si los ítems existen en el catálogo de tu Odoo...")
 
-    # Realizar matching si está vacío
-    if not st.session_state.inv_product_matches:
-        matches = []
-        with st.spinner("Buscando coincidencias en Odoo..."):
-            for line in st.session_state.inv_edited_lines:
-                match = None
-                # Si ya tiene un id pre-asociado por regla, buscar detalles directos
-                if line.get("odoo_product_id"):
-                    try:
-                        match = client.get_product_details(line["odoo_product_id"])
-                    except Exception:
-                        pass
+    # Realizar matching: Conservar los ya vinculados por descripción
+    existing_matches = {m["line_desc"]: m for m in st.session_state.inv_product_matches}
+    new_matches = []
+    
+    with st.spinner("Buscando coincidencias en Odoo y recuperando previos..."):
+        for line in st.session_state.inv_edited_lines:
+            desc = line["description"]
+            if desc in existing_matches:
+                new_matches.append(existing_matches[desc])
+                continue
                 
-                # De lo contrario, buscar por descripción
-                if not match:
-                    match = client.search_product(line["description"], st.session_state.inv_vendor_id)
+            match = None
+            # Si ya tiene un id pre-asociado por regla, buscar detalles directos
+            if line.get("odoo_product_id"):
+                try:
+                    match = client.get_product_details(line["odoo_product_id"])
+                except Exception:
+                    pass
+            
+            # De lo contrario, buscar por descripción
+            if not match:
+                match = client.search_product(desc, st.session_state.inv_vendor_id)
 
-                if match:
-                    matches.append({
-                        "line_desc": line["description"],
-                        "found": True,
-                        "product_id": match["id"],
-                        "odoo_name": match["name"],
-                        "uom_id": match["uom_id"],
-                        "default_code": match.get("default_code") or "",
-                        "action": "use_existing"
-                    })
-                else:
-                    matches.append({
-                        "line_desc": line["description"],
-                        "found": False,
-                        "product_id": None,
-                        "odoo_name": "",
-                        "uom_id": 1, # UoM Unidad por defecto
-                        "default_code": line["supplier_code"] or "",
-                        "action": "create_new"
-                    })
-        st.session_state.inv_product_matches = matches
+            if match:
+                new_matches.append({
+                    "line_desc": desc,
+                    "found": True,
+                    "product_id": match["id"],
+                    "odoo_name": match["name"],
+                    "uom_id": match["uom_id"],
+                    "default_code": match.get("default_code") or "",
+                    "action": "use_existing"
+                })
+            else:
+                new_matches.append({
+                    "line_desc": desc,
+                    "found": False,
+                    "product_id": None,
+                    "odoo_name": "",
+                    "uom_id": 1, # UoM Unidad por defecto
+                    "default_code": line["supplier_code"] or "",
+                    "action": "create_new"
+                })
+                
+    st.session_state.inv_product_matches = new_matches
 
     # Mostrar preview y permitir modificaciones
     st.markdown("#### Coincidencias encontradas")
@@ -526,6 +607,21 @@ def render_step_3(client: OdooRPC):
                     )
                     match["new_sale_price"] = new_sale_p
 
+            if selected_action != "ignore":
+                col_empty_b, col_bulk = st.columns([0.5, 4.5])
+                with col_bulk:
+                    update_bulk = st.checkbox("💰 Actualizar Descuento por Volumen (Lista de Precios)", key=f"upd_bulk_{i}", value=match.get("update_bulk_price", False))
+                    match["update_bulk_price"] = update_bulk
+                    if update_bulk:
+                        col_bq, col_bp = st.columns(2)
+                        with col_bq:
+                            bulk_q = st.number_input("Cant. Mínima (ej. 100):", min_value=1.0, value=float(match.get("bulk_quantity", 100.0)), step=1.0, key=f"bq_{i}")
+                            match["bulk_quantity"] = bulk_q
+                        with col_bp:
+                            bulk_p = st.number_input(f"Precio Total a cobrar por {int(bulk_q)}:", min_value=0.01, value=float(match.get("bulk_price", line["price_unit"] * bulk_q * 1.30)), step=0.5, key=f"bp_{i}")
+                            match["bulk_price"] = bulk_p
+
+            save_draft()
             st.markdown("---")
 
 
@@ -538,15 +634,19 @@ def render_step_3(client: OdooRPC):
     col_prev, col_next = st.columns([1, 1])
     with col_prev:
         if st.button("← Atrás"):
-            st.session_state.inv_product_matches = [] # reset matches para recalcular
             st.session_state.inv_step = 2
+            save_draft()
             st.rerun()
             
     with col_next:
         confirm_text = "Confirmar y Crear PO" if not has_creations else "Crear Productos Nuevos y PO"
         if st.button(confirm_text, type="primary"):
             st.session_state.inv_step = 4
+            save_draft()
             st.rerun()
+
+    # Autoguardar cada vez que se interactúe con la tabla de vinculaciones
+    save_draft()
 
 def render_step_4(client: OdooRPC):
     st.markdown("### Paso 4: Creando Registros en Odoo...")
@@ -624,6 +724,31 @@ def render_step_4(client: OdooRPC):
                         client.update_product_sale_price(product_id, match["new_sale_price"])
                     except Exception as e:
                         st.warning(f"⚠️ No se pudo actualizar el precio de venta para '{match['odoo_name']}': {str(e)}")
+
+            # 3. Actualizar descuento por volumen (Pricelist) si se solicitó
+            if match.get("update_bulk_price") and match.get("bulk_quantity") and match.get("bulk_price"):
+                with st.spinner(f"Configurando descuento por volumen para '{match.get('odoo_name', match.get('new_name', ''))}'..."):
+                    try:
+                        # Si es existente, hay que obtener el product_tmpl_id para la lista de precios
+                        tmpl_id = None
+                        if match.get("action") == "create_new":
+                            # Cuando se crea, get_product_details puede traernos el tmpl_id
+                            details = client.get_product_details(product_id)
+                            tmpl_id = details.get("product_tmpl_id")
+                        else:
+                            # Puede venir en el match o lo buscamos
+                            tmpl_id = match.get("product_tmpl_id")
+                            if not tmpl_id:
+                                details = client.get_product_details(product_id)
+                                tmpl_id = details.get("product_tmpl_id")
+                                
+                        if tmpl_id:
+                            qty = float(match["bulk_quantity"])
+                            total_price = float(match["bulk_price"])
+                            unit_price = total_price / qty
+                            client.update_product_pricelist_item(tmpl_id, qty, unit_price)
+                    except Exception as e:
+                        st.warning(f"⚠️ No se pudo actualizar el precio por volumen: {str(e)}")
             
             # Obtener uom_id (vía lectura si existía)
             uom_id = match.get("uom_id")
@@ -669,6 +794,7 @@ def render_step_4(client: OdooRPC):
 
         st.session_state.inv_step = 5
         st.session_state.inv_creating_po = False
+        clear_draft()
         st.rerun()
 
     except Exception as e:

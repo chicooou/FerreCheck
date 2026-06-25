@@ -143,6 +143,30 @@ class OdooRPC:
         """
         return self._execute('product.product', 'write', [[product_id], {'list_price': float(new_price)}])
 
+    def update_product_pricelist_item(self, product_tmpl_id: int, min_quantity: float, new_price: float, pricelist_id: int = 1) -> bool:
+        """
+        Actualiza o crea un descuento por volumen en Odoo.
+        """
+        # Buscar si ya existe una regla exacta
+        domain = [
+            ('product_tmpl_id', '=', product_tmpl_id),
+            ('pricelist_id', '=', pricelist_id),
+            ('min_quantity', '=', float(min_quantity))
+        ]
+        items = self._execute('product.pricelist.item', 'search', [domain])
+        if items:
+            # Actualizar existente
+            return self._execute('product.pricelist.item', 'write', [items, {'fixed_price': float(new_price)}])
+        else:
+            # Crear nueva regla
+            return self._execute('product.pricelist.item', 'create', [{
+                'product_tmpl_id': product_tmpl_id,
+                'pricelist_id': pricelist_id,
+                'min_quantity': float(min_quantity),
+                'fixed_price': float(new_price),
+                'compute_price': 'fixed'
+            }])
+
     def _format_product_match(self, raw_prod: Dict[str, Any]) -> Dict[str, Any]:
         """Extrae los IDs de las tuplas Many2one para simplificar el uso."""
         uom_raw = raw_prod.get('uom_id')
