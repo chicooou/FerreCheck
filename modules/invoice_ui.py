@@ -185,8 +185,62 @@ def render_rules_sidebar():
                 st.session_state.inv_product_matches = []
                 st.rerun()
 
+def render_draft_manager():
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### 📁 Gestión de Borradores")
+        st.write("Guarda o carga tu progreso en tu PC.")
+        
+        # Guardar / Descargar Borrador
+        if st.button("💾 Preparar Borrador para Descarga", help="Guarda el estado actual antes de descargar"):
+            save_draft()
+            st.success("Borrador preparado.")
+            
+        if os.path.exists(DRAFT_FILE):
+            with open(DRAFT_FILE, "r", encoding="utf-8") as f:
+                draft_content = f.read()
+            st.download_button(
+                label="⬇️ Descargar Borrador a PC",
+                data=draft_content,
+                file_name="borrador_factura.json",
+                mime="application/json"
+            )
+            
+        # Cargar Borrador
+        st.markdown("#### Cargar Borrador desde PC")
+        uploaded_draft = st.file_uploader("Selecciona un archivo .json", type=["json"], key="draft_uploader")
+        if uploaded_draft is not None:
+            if st.button("📂 Restaurar desde archivo"):
+                try:
+                    draft_data = json.load(uploaded_draft)
+                    
+                    st.session_state.inv_step = draft_data.get("inv_step", 1)
+                    st.session_state.inv_vendor_id = draft_data.get("inv_vendor_id")
+                    st.session_state.inv_vendor_name = draft_data.get("inv_vendor_name", "")
+                    
+                    if draft_data.get("inv_image_bytes_b64"):
+                        st.session_state.inv_image_bytes = base64.b64decode(draft_data["inv_image_bytes_b64"])
+                    else:
+                        st.session_state.inv_image_bytes = None
+                        
+                    st.session_state.inv_extracted_data = draft_data.get("inv_extracted_data", {})
+                    st.session_state.inv_edited_lines = draft_data.get("inv_edited_lines", [])
+                    st.session_state.inv_product_matches = draft_data.get("inv_product_matches", [])
+                    st.session_state.inv_invoice_number = draft_data.get("inv_invoice_number", "")
+                    st.session_state.inv_invoice_date = draft_data.get("inv_invoice_date", "")
+                    
+                    # Guardar localmente para mantener consistencia
+                    with open(DRAFT_FILE, "w", encoding="utf-8") as f:
+                        json.dump(draft_data, f, ensure_ascii=False, indent=2)
+                        
+                    st.success("Borrador restaurado con éxito.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al leer el archivo: {e}")
+
 def render_invoice_tab():
     render_rules_sidebar()
+    render_draft_manager()
     initialize_state()
 
     st.markdown("## 📸 Integración Odoo — Facturación de Compra OCR")
