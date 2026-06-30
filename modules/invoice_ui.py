@@ -384,6 +384,42 @@ def render_step_2():
         }
     )
 
+    st.markdown("#### 🛠️ Asistente de Conversión (Cientos, Libras, Cajas)")
+    st.write("Si compraste un paquete (ej. 1 ciento o 1 libra) pero vendes por unidad, selecciona la línea, indica cuántas unidades trae y convierte (multiplica cantidad y divide precio unitario).")
+
+    if not df_lines.empty:
+        col_sel, col_fac, col_btn = st.columns([2, 1, 1])
+        with col_sel:
+            line_options = {i: f"{row['description']} (Cant: {row['quantity']}, P.U: {row['price_unit']})" for i, row in edited_df.iterrows()}
+            selected_idx = st.selectbox("Línea a convertir:", options=list(line_options.keys()), format_func=lambda x: line_options[x], label_visibility="collapsed")
+        
+        with col_fac:
+            factor = st.number_input("Unidades reales", min_value=0.01, value=100.0, step=1.0, help="¿Cuántas unidades trae esta caja, ciento o libra?")
+            
+        with col_btn:
+            if st.button("🔄 Aplicar Conversión"):
+                # Actualizar el session state con los datos modificados del data_editor antes de convertir
+                new_lines = []
+                for idx, row in edited_df.iterrows():
+                    orig_meta = st.session_state.inv_edited_lines[idx] if idx < len(st.session_state.inv_edited_lines) else {}
+                    new_lines.append({
+                        "original_description": orig_meta.get("original_description", row["description"]),
+                        "description": row["description"],
+                        "quantity": float(row["quantity"]),
+                        "price_unit": float(row["price_unit"]),
+                        "supplier_code": row["supplier_code"] if pd.notna(row["supplier_code"]) else "",
+                        "applied_rule": orig_meta.get("applied_rule", False),
+                        "multiplier": orig_meta.get("multiplier", 1.0),
+                        "odoo_product_id": orig_meta.get("odoo_product_id"),
+                        "odoo_default_code": orig_meta.get("odoo_default_code", "")
+                    })
+                st.session_state.inv_edited_lines = new_lines
+                
+                # Aplicar conversión
+                st.session_state.inv_edited_lines[selected_idx]['quantity'] *= factor
+                st.session_state.inv_edited_lines[selected_idx]['price_unit'] /= factor
+                st.rerun()
+
     # Botones de navegación
     col_prev, col_next = st.columns([1, 1])
     with col_prev:
@@ -976,7 +1012,7 @@ def render_step_5(client: OdooRPC):
     except Exception:
         inv_date = datetime.date.today()
         
-    is_before_today = inv_date < datetime.date.today()
+    is_before_today = inv_date < datetime.date(2026, 6, 24)
     
     if is_before_today:
         st.info("ℹ️ Esta factura tiene una fecha anterior a hoy. Se asume que ya está registrada en el Semáforo local (Google Sheet), por lo que solo se procesará en Odoo.")
@@ -1128,7 +1164,7 @@ def render_cuentas_por_pagar(client: OdooRPC):
                                         except Exception:
                                             b_date = datetime.date.today()
                                             
-                                        if b_date >= datetime.date.today():
+                                        if b_date >= datetime.date(2026, 6, 24):
                                             if "periodo_actual" in st.session_state:
                                                 p = st.session_state.periodo_actual
                                                 import uuid
