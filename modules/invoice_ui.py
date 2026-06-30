@@ -345,9 +345,11 @@ def render_step_1(client: OdooRPC):
     if final_file:
         file_bytes = final_file.read()
         st.session_state.inv_image_bytes = file_bytes
-        st.image(file_bytes, caption="Factura cargada", width=350)
 
-    btn_disabled = (not final_file) or (selected_vendor_id is None)
+    if st.session_state.inv_image_bytes:
+        st.image(st.session_state.inv_image_bytes, caption="Factura cargada", width=350)
+
+    btn_disabled = (not st.session_state.inv_image_bytes) or (selected_vendor_id is None)
     
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
@@ -362,7 +364,8 @@ def render_step_1(client: OdooRPC):
             
             try:
                 with st.spinner("La IA (Gemini) está leyendo tu factura..."):
-                    extracted = extract_invoice_data(st.session_state.inv_image_bytes, final_file.type)
+                    mime_type = final_file.type if final_file else "image/jpeg"
+                    extracted = extract_invoice_data(st.session_state.inv_image_bytes, mime_type)
                     st.session_state.inv_extracted_data = extracted
                     st.session_state.inv_invoice_number = extracted.get("invoice_number") or ""
                     st.session_state.inv_invoice_date = extracted.get("invoice_date") or ""
@@ -486,8 +489,8 @@ def render_step_2():
             
         new_lines.append(line_data)
         
+    st.session_state.inv_edited_lines = new_lines
     if needs_rerun:
-        st.session_state.inv_edited_lines = new_lines
         st.rerun()
 
     # Botones de navegación
