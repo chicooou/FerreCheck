@@ -186,57 +186,57 @@ def render_rules_sidebar():
                 st.rerun()
 
 def render_draft_manager():
-    with st.sidebar:
-        st.markdown("---")
-        st.markdown("### 📁 Gestión de Borradores")
-        st.write("Guarda o carga tu progreso en tu PC.")
+    with st.expander("📁 Gestión de Borradores (Guardar / Cargar en PC)", expanded=False):
+        st.write("Guarda o carga tu progreso en tu PC para no perder el trabajo.")
         
-        # Guardar / Descargar Borrador
-        if st.button("💾 Preparar Borrador para Descarga", help="Guarda el estado actual antes de descargar"):
-            save_draft()
-            st.success("Borrador preparado.")
-            
-        if os.path.exists(DRAFT_FILE):
-            with open(DRAFT_FILE, "r", encoding="utf-8") as f:
-                draft_content = f.read()
-            st.download_button(
-                label="⬇️ Descargar Borrador a PC",
-                data=draft_content,
-                file_name="borrador_factura.json",
-                mime="application/json"
-            )
-            
-        # Cargar Borrador
-        st.markdown("#### Cargar Borrador desde PC")
-        uploaded_draft = st.file_uploader("Selecciona un archivo .json", type=["json"], key="draft_uploader")
-        if uploaded_draft is not None:
-            if st.button("📂 Restaurar desde archivo"):
-                try:
-                    draft_data = json.load(uploaded_draft)
-                    
-                    st.session_state.inv_step = draft_data.get("inv_step", 1)
-                    st.session_state.inv_vendor_id = draft_data.get("inv_vendor_id")
-                    st.session_state.inv_vendor_name = draft_data.get("inv_vendor_name", "")
-                    
-                    if draft_data.get("inv_image_bytes_b64"):
-                        st.session_state.inv_image_bytes = base64.b64decode(draft_data["inv_image_bytes_b64"])
-                    else:
-                        st.session_state.inv_image_bytes = None
+        col_down, col_up = st.columns(2)
+        
+        with col_down:
+            st.markdown("#### Guardar Borrador")
+            if st.button("💾 Preparar Borrador para Descarga", help="Guarda el estado actual antes de descargar"):
+                save_draft()
+                st.success("Borrador preparado.")
+                
+            if os.path.exists(DRAFT_FILE):
+                with open(DRAFT_FILE, "r", encoding="utf-8") as f:
+                    draft_content = f.read()
+                st.download_button(
+                    label="⬇️ Descargar Borrador a PC",
+                    data=draft_content,
+                    file_name="borrador_factura.json",
+                    mime="application/json"
+                )
+                
+        with col_up:
+            st.markdown("#### Cargar Borrador")
+            uploaded_draft = st.file_uploader("Selecciona un archivo .json", type=["json"], key="draft_uploader", label_visibility="collapsed")
+            if uploaded_draft is not None:
+                if st.button("📂 Restaurar desde archivo"):
+                    try:
+                        draft_data = json.load(uploaded_draft)
                         
-                    st.session_state.inv_extracted_data = draft_data.get("inv_extracted_data", {})
-                    st.session_state.inv_edited_lines = draft_data.get("inv_edited_lines", [])
-                    st.session_state.inv_product_matches = draft_data.get("inv_product_matches", [])
-                    st.session_state.inv_invoice_number = draft_data.get("inv_invoice_number", "")
-                    st.session_state.inv_invoice_date = draft_data.get("inv_invoice_date", "")
-                    
-                    # Guardar localmente para mantener consistencia
-                    with open(DRAFT_FILE, "w", encoding="utf-8") as f:
-                        json.dump(draft_data, f, ensure_ascii=False, indent=2)
+                        st.session_state.inv_step = draft_data.get("inv_step", 1)
+                        st.session_state.inv_vendor_id = draft_data.get("inv_vendor_id")
+                        st.session_state.inv_vendor_name = draft_data.get("inv_vendor_name", "")
                         
-                    st.success("Borrador restaurado con éxito.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error al leer el archivo: {e}")
+                        if draft_data.get("inv_image_bytes_b64"):
+                            st.session_state.inv_image_bytes = base64.b64decode(draft_data["inv_image_bytes_b64"])
+                        else:
+                            st.session_state.inv_image_bytes = None
+                            
+                        st.session_state.inv_extracted_data = draft_data.get("inv_extracted_data", {})
+                        st.session_state.inv_edited_lines = draft_data.get("inv_edited_lines", [])
+                        st.session_state.inv_product_matches = draft_data.get("inv_product_matches", [])
+                        st.session_state.inv_invoice_number = draft_data.get("inv_invoice_number", "")
+                        st.session_state.inv_invoice_date = draft_data.get("inv_invoice_date", "")
+                        
+                        with open(DRAFT_FILE, "w", encoding="utf-8") as f:
+                            json.dump(draft_data, f, ensure_ascii=False, indent=2)
+                            
+                        st.success("Borrador restaurado con éxito.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al leer el archivo: {e}")
 
 def render_invoice_tab():
     render_rules_sidebar()
@@ -429,62 +429,66 @@ def render_step_2():
         )
         st.session_state.inv_invoice_date = selected_date.strftime("%Y-%m-%d")
 
-    st.markdown("#### Líneas de Compra Extraídas")
-    st.info("💡 Puedes editar directamente en las celdas. Modifica las descripciones si deseas que se asocien a un producto distinto.")
+    # Preparar columnas para la conversión en la misma tabla
+    for row in st.session_state.inv_edited_lines:
+        if "unidades_paquete" not in row:
+            row["unidades_paquete"] = 100.0
+        if "aplicar_conversion" not in row:
+            row["aplicar_conversion"] = False
 
     df_lines = pd.DataFrame(st.session_state.inv_edited_lines)
     if df_lines.empty:
         st.warning("No se extrajeron líneas. Agrega una nueva línea.")
-        df_lines = pd.DataFrame(columns=["description", "quantity", "price_unit", "supplier_code"])
+        df_lines = pd.DataFrame(columns=["description", "quantity", "price_unit", "supplier_code", "unidades_paquete", "aplicar_conversion"])
+
+    st.markdown("#### 🛠️ Edición y Conversión (Cientos, Libras)")
+    st.info("💡 Edita las celdas directamente. Si compraste un paquete (ej. 1 ciento), escribe las unidades reales en 'Unds x Paquete' y marca '✅ Convertir'.")
 
     # Selector y editor de tabla
     edited_df = st.data_editor(
-        df_lines[["description", "quantity", "price_unit", "supplier_code"]],
+        df_lines[["description", "quantity", "price_unit", "supplier_code", "unidades_paquete", "aplicar_conversion"]],
         num_rows="dynamic",
         use_container_width=True,
         column_config={
-            "description": st.column_config.TextColumn("Descripción del Producto (Odoo / Factura)", required=True),
+            "description": st.column_config.TextColumn("Descripción (Odoo / Factura)", required=True),
             "quantity": st.column_config.NumberColumn("Cantidad", min_value=0.01, required=True, format="%.2f"),
-            "price_unit": st.column_config.NumberColumn("Precio Unitario (Q)", min_value=0.0, required=True, format="Q %.2f"),
-            "supplier_code": st.column_config.TextColumn("Código Proveedor"),
+            "price_unit": st.column_config.NumberColumn("Precio Unitario (Q)", min_value=0.0, required=True, format="Q %.4f"),
+            "supplier_code": st.column_config.TextColumn("Cód. Prov."),
+            "unidades_paquete": st.column_config.NumberColumn("Unds x Paquete", min_value=0.01, format="%.2f", help="Unidades reales del empaque/libra."),
+            "aplicar_conversion": st.column_config.CheckboxColumn("✅ Convertir", default=False),
         }
     )
 
-    st.markdown("#### 🛠️ Asistente de Conversión (Cientos, Libras, Cajas)")
-    st.write("Si compraste un paquete (ej. 1 ciento o 1 libra) pero vendes por unidad, selecciona la línea, indica cuántas unidades trae y convierte (multiplica cantidad y divide precio unitario).")
-
-    if not df_lines.empty:
-        col_sel, col_fac, col_btn = st.columns([2, 1, 1])
-        with col_sel:
-            line_options = {i: f"{row['description']} (Cant: {row['quantity']}, P.U: {row['price_unit']})" for i, row in edited_df.iterrows()}
-            selected_idx = st.selectbox("Línea a convertir:", options=list(line_options.keys()), format_func=lambda x: line_options[x], label_visibility="collapsed")
+    # Procesar conversiones solicitadas desde la tabla
+    needs_rerun = False
+    new_lines = []
+    for idx, row in edited_df.iterrows():
+        orig_meta = st.session_state.inv_edited_lines[idx] if idx < len(st.session_state.inv_edited_lines) else {}
+        line_data = {
+            "original_description": orig_meta.get("original_description", row["description"]),
+            "description": row["description"],
+            "quantity": float(row["quantity"]),
+            "price_unit": float(row["price_unit"]),
+            "supplier_code": row["supplier_code"] if pd.notna(row["supplier_code"]) else "",
+            "unidades_paquete": float(row.get("unidades_paquete", 100.0)),
+            "aplicar_conversion": False, # Reset after applying
+            "applied_rule": orig_meta.get("applied_rule", False),
+            "multiplier": orig_meta.get("multiplier", 1.0),
+            "odoo_product_id": orig_meta.get("odoo_product_id"),
+            "odoo_default_code": orig_meta.get("odoo_default_code", "")
+        }
         
-        with col_fac:
-            factor = st.number_input("Unidades reales", min_value=0.01, value=100.0, step=1.0, help="¿Cuántas unidades trae esta caja, ciento o libra?")
+        if row.get("aplicar_conversion", False):
+            factor = line_data["unidades_paquete"]
+            line_data["quantity"] *= factor
+            line_data["price_unit"] /= factor
+            needs_rerun = True
             
-        with col_btn:
-            if st.button("🔄 Aplicar Conversión"):
-                # Actualizar el session state con los datos modificados del data_editor antes de convertir
-                new_lines = []
-                for idx, row in edited_df.iterrows():
-                    orig_meta = st.session_state.inv_edited_lines[idx] if idx < len(st.session_state.inv_edited_lines) else {}
-                    new_lines.append({
-                        "original_description": orig_meta.get("original_description", row["description"]),
-                        "description": row["description"],
-                        "quantity": float(row["quantity"]),
-                        "price_unit": float(row["price_unit"]),
-                        "supplier_code": row["supplier_code"] if pd.notna(row["supplier_code"]) else "",
-                        "applied_rule": orig_meta.get("applied_rule", False),
-                        "multiplier": orig_meta.get("multiplier", 1.0),
-                        "odoo_product_id": orig_meta.get("odoo_product_id"),
-                        "odoo_default_code": orig_meta.get("odoo_default_code", "")
-                    })
-                st.session_state.inv_edited_lines = new_lines
-                
-                # Aplicar conversión
-                st.session_state.inv_edited_lines[selected_idx]['quantity'] *= factor
-                st.session_state.inv_edited_lines[selected_idx]['price_unit'] /= factor
-                st.rerun()
+        new_lines.append(line_data)
+        
+    if needs_rerun:
+        st.session_state.inv_edited_lines = new_lines
+        st.rerun()
 
     # Botones de navegación
     col_prev, col_next = st.columns([1, 1])
