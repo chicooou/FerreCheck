@@ -359,51 +359,51 @@ def render_step_1(client: OdooRPC):
         if st.button("🔍 Extraer Datos con IA", type="primary", disabled=btn_disabled):
             st.session_state.inv_vendor_id = selected_vendor_id
             st.session_state.inv_vendor_name = vendor_options[selected_vendor_id]
-        
-        try:
-            with st.spinner("La IA (Gemini) está leyendo tu factura..."):
-                extracted = extract_invoice_data(st.session_state.inv_image_bytes, final_file.type)
-                st.session_state.inv_extracted_data = extracted
-                st.session_state.inv_invoice_number = extracted.get("invoice_number") or ""
-                st.session_state.inv_invoice_date = extracted.get("invoice_date") or ""
-                
-                # Procesar líneas agregando reglas
-                raw_lines = extracted.get("line_items", [])
-                processed_lines = []
-                for line in raw_lines:
-                    orig_desc = line.get("description", "")
-                    qty = line.get("quantity", 1.0)
-                    price = line.get("price_unit", 0.0)
-                    sup_code = line.get("supplier_code") or ""
+            
+            try:
+                with st.spinner("La IA (Gemini) está leyendo tu factura..."):
+                    extracted = extract_invoice_data(st.session_state.inv_image_bytes, final_file.type)
+                    st.session_state.inv_extracted_data = extracted
+                    st.session_state.inv_invoice_number = extracted.get("invoice_number") or ""
+                    st.session_state.inv_invoice_date = extracted.get("invoice_date") or ""
                     
-                    # Buscar si hay regla previa
-                    rule = find_matching_rule(selected_vendor_id, orig_desc)
-                    applied_rule = False
-                    if rule:
-                        orig_qty = qty
-                        qty = qty * rule["quantity_multiplier"]
-                        # Si cambia cantidad, ajustamos proporcionalmente el precio unitario
-                        if rule["quantity_multiplier"] != 0:
-                            price = price / rule["quantity_multiplier"]
-                        applied_rule = True
+                    # Procesar líneas agregando reglas
+                    raw_lines = extracted.get("line_items", [])
+                    processed_lines = []
+                    for line in raw_lines:
+                        orig_desc = line.get("description", "")
+                        qty = line.get("quantity", 1.0)
+                        price = line.get("price_unit", 0.0)
+                        sup_code = line.get("supplier_code") or ""
+                        
+                        # Buscar si hay regla previa
+                        rule = find_matching_rule(selected_vendor_id, orig_desc)
+                        applied_rule = False
+                        if rule:
+                            orig_qty = qty
+                            qty = qty * rule["quantity_multiplier"]
+                            # Si cambia cantidad, ajustamos proporcionalmente el precio unitario
+                            if rule["quantity_multiplier"] != 0:
+                                price = price / rule["quantity_multiplier"]
+                            applied_rule = True
+                        
+                        processed_lines.append({
+                            "original_description": orig_desc,
+                            "description": rule["converted_description"] if rule else orig_desc,
+                            "quantity": float(qty),
+                            "price_unit": float(price),
+                            "supplier_code": sup_code,
+                            "applied_rule": applied_rule,
+                            "multiplier": rule["quantity_multiplier"] if rule else 1.0,
+                            "odoo_product_id": rule["odoo_product_id"] if rule else None,
+                            "odoo_default_code": rule["odoo_default_code"] if rule else ""
+                        })
                     
-                    processed_lines.append({
-                        "original_description": orig_desc,
-                        "description": rule["converted_description"] if rule else orig_desc,
-                        "quantity": float(qty),
-                        "price_unit": float(price),
-                        "supplier_code": sup_code,
-                        "applied_rule": applied_rule,
-                        "multiplier": rule["quantity_multiplier"] if rule else 1.0,
-                        "odoo_product_id": rule["odoo_product_id"] if rule else None,
-                        "odoo_default_code": rule["odoo_default_code"] if rule else ""
-                    })
-                
-                st.session_state.inv_edited_lines = processed_lines
-                st.session_state.inv_step = 2
-                st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error durante la extracción: {str(e)}")
+                    st.session_state.inv_edited_lines = processed_lines
+                    st.session_state.inv_step = 2
+                    st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error durante la extracción: {str(e)}")
 
 def render_step_2():
     st.markdown("### Paso 2: Validación e ingreso de datos")
