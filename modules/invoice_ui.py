@@ -322,6 +322,10 @@ def render_step_1(client: OdooRPC):
         index=None if not st.session_state.inv_vendor_id else list(vendor_options.keys()).index(st.session_state.inv_vendor_id),
         placeholder="⚠️ Elige el proveedor de esta factura..."
     )
+    
+    if selected_vendor_id:
+        st.session_state.inv_vendor_id = selected_vendor_id
+        st.session_state.inv_vendor_name = vendor_options[selected_vendor_id]
 
     st.write("📸 Toma una foto o sube la factura de compra:")
     col_cam, col_file = st.columns([1, 1])
@@ -344,9 +348,17 @@ def render_step_1(client: OdooRPC):
         st.image(file_bytes, caption="Factura cargada", width=350)
 
     btn_disabled = (not final_file) or (selected_vendor_id is None)
-    if st.button("🔍 Extraer Datos con IA", type="primary", disabled=btn_disabled):
-        st.session_state.inv_vendor_id = selected_vendor_id
-        st.session_state.inv_vendor_name = vendor_options[selected_vendor_id]
+    
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("💾 Guardar Borrador (Continuar luego)", disabled=btn_disabled, help="Guarda la foto y el proveedor para procesarlo más tarde."):
+            save_draft()
+            st.success("Borrador guardado. Puedes descargar el archivo desde el menú lateral si lo deseas.")
+            
+    with col_btn2:
+        if st.button("🔍 Extraer Datos con IA", type="primary", disabled=btn_disabled):
+            st.session_state.inv_vendor_id = selected_vendor_id
+            st.session_state.inv_vendor_name = vendor_options[selected_vendor_id]
         
         try:
             with st.spinner("La IA (Gemini) está leyendo tu factura..."):
