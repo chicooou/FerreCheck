@@ -48,24 +48,46 @@ def render_sidebar() -> dict:
     # 2. Entradas Financieras
     st.sidebar.subheader("💰 Flujo Financiero")
     
-    ventas = st.sidebar.number_input(
-        "Ventas Mes Anterior",
-        min_value=0.0,
-        value=float(p["ventas"]),
-        step=5000.0,
-        format="%f",
-        help="Las ventas totales reportadas el mes inmediato anterior (Base de cálculo)."
-    )
-    p["ventas"] = ventas
+    # Obtener madurez del historial para activar opción de promedio
+    from modules.history import load_history
+    from modules.engine import evaluar_madurez_historial
+    hist_temp = load_history()
+    mad_temp = evaluar_madurez_historial(hist_temp)
+    
+    if mad_temp.get("puede_usar_promedio"):
+        st.sidebar.markdown("**📈 Opciones de Proyección**")
+        usar_prom = st.sidebar.checkbox(
+            "Usar Promedio Histórico de Ventas",
+            value=st.session_state.get("usar_promedio_historico", False),
+            help="Usa el promedio de las ventas de periodos cerrados en vez del valor manual."
+        )
+        st.session_state.usar_promedio_historico = usar_prom
+        if usar_prom:
+            p["ventas"] = mad_temp["promedio_ventas"]
+            st.sidebar.info(f"Ventas fijadas al promedio: **{format_currency(mad_temp['promedio_ventas'])}**")
+            
+    if not st.session_state.get("usar_promedio_historico", False):
+        ventas = st.sidebar.number_input(
+            "Ventas Mes Anterior",
+            min_value=0.0,
+            value=float(p["ventas"]),
+            step=5000.0,
+            format="%f",
+            help="Las ventas totales reportadas el mes inmediato anterior (Base de cálculo)."
+        )
+        p["ventas"] = ventas
+    else:
+        # Mantener las ventas sincronizadas con el promedio calculado
+        p["ventas"] = mad_temp["promedio_ventas"]
 
     from modules.daily_sales import get_monthly_sales_total
     total_diario = get_monthly_sales_total(p)
     if total_diario > 0:
         st.sidebar.markdown(
             f"""
-            <div style="background-color: rgba(9, 171, 59, 0.1); border-left: 3px solid #09AB3B; padding: 8px; border-radius: 4px; font-size: 12px; color: var(--text-color, inherit); margin-top: -10px; margin-bottom: 10px;">
+            <div style="background-color: rgba(9, 171, 59, 0.1); border-left: 3px solid #09AB3B; padding: 8px; border-radius: 4px; font-size: 12px; color: var(--text-color, inherit); margin-top: 5px; margin-bottom: 10px;">
                 💡 <b>{format_currency(total_diario)}</b> acumulados en Caja Diaria este mes.<br>
-                <span style="opacity:0.75;">El Semáforo usa el valor manual de arriba. Al <b>Cerrar el Período</b>, el total diario reemplazará ese valor automáticamente.</span>
+                <span style="opacity:0.75;">El Semáforo usa el valor base configurado. Al <b>Cerrar el Período</b>, el total diario reemplazará ese valor automáticamente.</span>
             </div>
             """,
             unsafe_allow_html=True

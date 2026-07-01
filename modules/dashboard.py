@@ -191,11 +191,12 @@ def render_dashboard(p: dict, calc_results: dict):
         madurez = calc_results.get("madurez_historial")
         if madurez and madurez.get("puede_usar_promedio"):
             n = madurez["periodos_cerrados"]
-            st.info(
-                f"💡 **¡Ya tienes {n} meses de historial!** Las proyecciones de pagos futuros "
-                f"pueden ser más precisas usando un promedio histórico de ventas en lugar de la "
-                f"extrapolación de Caja Diaria. Esta función estará disponible próximamente."
+            prom_ventas_format = format_currency_clean(madurez.get("promedio_ventas", 0.0))
+            st.success(
+                f"💡 **Promedio Histórico Activo:** Con {n} meses de historial, el promedio calculado "
+                f"es de **{prom_ventas_format}** al mes, utilizable como una base más estable para límites futuros."
             )
+
 
     with col_desglose:
         st.markdown("### 💰 Análisis y Desglose")

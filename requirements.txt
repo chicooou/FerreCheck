@@ -5,3 +5,6 @@ google-auth
 python-dotenv
 google-genai
 Pillow
+plotly>=6.0.0
+openpyxl>=3.1.0
+
