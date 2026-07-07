@@ -131,50 +131,67 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 6. Renderizar Pestañas Principales (Tabs)
+# 6. Renderizar Pestañas Principales (Navegación Robusta con Session State)
 st.markdown(" ")  # Spacer
-tab_dashboard, tab_compras, tab_ventas, tab_historial, tab_intel, tab_invoice = st.tabs([
-    "📊 Cuadro de Mando (Dashboard)",
-    "📝 Registro de Compras",
-    "📈 Caja Diaria",
-    "📜 Historial Multi-Período",
-    "🛒 Inteligencia de Compras",
-    "📸 Factura → Odoo"
-], key="main_navigation_tabs")
 
-with tab_dashboard:
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "dashboard"
+
+tabs_info = [
+    ("📊 Cuadro de Mando", "dashboard"),
+    ("📝 Registro de Compras", "compras"),
+    ("📈 Caja Diaria", "ventas"),
+    ("📜 Historial Multi-Período", "historial"),
+    ("🛒 Inteligencia de Compras", "intel"),
+    ("📸 Factura → Odoo", "invoice")
+]
+
+# Botones de navegación horizontales
+cols_nav = st.columns(6)
+for idx, (label, tab_name) in enumerate(tabs_info):
+    with cols_nav[idx]:
+        is_active = (st.session_state.active_tab == tab_name)
+        if st.button(
+            label, 
+            key=f"nav_btn_{tab_name}", 
+            type="primary" if is_active else "secondary", 
+            use_container_width=True
+        ):
+            st.session_state.active_tab = tab_name
+            st.rerun()
+
+st.write("---")
+
+active_tab = st.session_state.active_tab
+
+if active_tab == "dashboard":
     render_dashboard(p, calc_results)
 
-with tab_compras:
+elif active_tab == "compras":
     col_form, col_tabla = st.columns([1, 2], gap="large")
-
     with col_form:
         render_purchase_form(p, limite_real)
-
     with col_tabla:
         render_purchase_table(p, limite_real)
         st.write("---")
         render_export_button(p)
 
-with tab_ventas:
+elif active_tab == "ventas":
     render_sales_kpis(p)
     col_form_v, col_tabla_v = st.columns([1, 2], gap="large")
-
     with col_form_v:
         render_daily_sale_form(p)
-
     with col_tabla_v:
         render_daily_sales_table(p)
-
     render_analytics_panel(p)
 
-with tab_historial:
+elif active_tab == "historial":
     render_history_view()
 
-with tab_intel:
+elif active_tab == "intel":
     render_buying_intel_tab()
 
-with tab_invoice:
+elif active_tab == "invoice":
     render_invoice_tab()
 
 # 7. Guardado Automático (Autosave en disco al finalizar cada render)
