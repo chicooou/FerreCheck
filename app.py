@@ -140,7 +140,7 @@ tab_dashboard, tab_compras, tab_ventas, tab_historial, tab_intel, tab_invoice = 
     "📜 Historial Multi-Período",
     "🛒 Inteligencia de Compras",
     "📸 Factura → Odoo"
-])
+], key="main_navigation_tabs")
 
 with tab_dashboard:
     render_dashboard(p, calc_results)

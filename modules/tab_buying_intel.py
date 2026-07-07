@@ -21,7 +21,8 @@ def _render_product_table(df_sub: pd.DataFrame, key_suffix: str):
         st.info("No hay productos en esta categoría que coincidan con el filtro seleccionado.")
         return
 
-    df_visual = df_sub[["semaforo", "nombre", "codigo", "stock_actual", "promedio_mensual", "proyeccion_mes", "a_comprar", "cobertura_pct", "fuente"]].copy()
+    expected_cols = ["semaforo", "nombre", "codigo", "stock_actual", "promedio_mensual", "proyeccion_mes", "a_comprar", "cobertura_pct", "fuente"]
+    df_visual = df_sub.reindex(columns=expected_cols).copy()
     df_visual = df_visual.rename(columns={
         "semaforo": "🚦",
         "nombre": "Producto",
