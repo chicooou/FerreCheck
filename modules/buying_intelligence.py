@@ -184,6 +184,31 @@ def compute_purchase_plan(essential_products: List[Dict[str, Any]], stock_map: D
     plan.sort(key=lambda x: (x["urgencia"], x["a_comprar"]), reverse=True)
     return plan
 
+def get_actual_months_span(raw_lines: List[Dict[str, Any]], months_window: int) -> int:
+    """Calcula cuántos meses reales de datos tenemos en el historial recuperado."""
+    if not raw_lines:
+        return months_window
+    
+    dates = []
+    for line in raw_lines:
+        date_str = line.get('date_order')
+        if date_str:
+            try:
+                dt = datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+                dates.append(dt)
+            except ValueError:
+                continue
+                
+    if not dates:
+        return months_window
+        
+    oldest = min(dates)
+    today = datetime.datetime.today()
+    
+    # Calcular diferencia en meses
+    diff_months = (today.year - oldest.year) * 12 + (today.month - oldest.month) + 1
+    return max(1, min(months_window, diff_months))
+
 def run_full_analysis(odoo_client, months_window: int = 12) -> List[Dict[str, Any]]:
     """
     Orquesta el flujo completo obteniendo datos de Odoo.
@@ -191,9 +216,12 @@ def run_full_analysis(odoo_client, months_window: int = 12) -> List[Dict[str, An
     # 1. Obtener historial de ventas
     raw_lines = odoo_client.fetch_sales_history_by_product(months=months_window)
     
+    # Calcular ventana de meses real basada en los datos devueltos
+    real_months = get_actual_months_span(raw_lines, months_window)
+    
     # 2. Construir mapa de ventas y clasificar
     sales_map = build_product_sales_map(raw_lines)
-    essential = classify_essential_products(sales_map, total_months_in_range=months_window)
+    essential = classify_essential_products(sales_map, total_months_in_range=real_months)
     
     # 3. Obtener stock
     product_ids = [p["product_id"] for p in essential]

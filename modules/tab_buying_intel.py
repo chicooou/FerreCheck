@@ -35,7 +35,14 @@ def _render_product_table(df_sub: pd.DataFrame, key_suffix: str):
         "fuente": "Fuente"
     })
     
-    max_proy = float(df_visual["Proyección"].max()) if df_visual["Proyección"].max() > 0 else 100.0
+    try:
+        max_val = df_visual["Proyección"].max()
+        if pd.notna(max_val) and float(max_val) > 0:
+            max_proy = float(max_val)
+        else:
+            max_proy = 100.0
+    except Exception:
+        max_proy = 100.0
     
     st.dataframe(
         df_visual,
