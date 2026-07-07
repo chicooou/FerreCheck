@@ -13,6 +13,7 @@ from modules.purchases import render_purchase_form, render_purchase_table
 from modules.daily_sales import render_daily_sale_form, render_daily_sales_table, render_sales_kpis, render_analytics_panel
 from modules.export import render_export_button
 from modules.invoice_ui import render_invoice_tab
+from modules.tab_buying_intel import render_buying_intel_tab
 from dotenv import load_dotenv
 
 # Cargar variables de entorno del archivo .env
@@ -132,11 +133,12 @@ st.markdown(
 
 # 6. Renderizar Pestañas Principales (Tabs)
 st.markdown(" ")  # Spacer
-tab_dashboard, tab_compras, tab_ventas, tab_historial, tab_invoice = st.tabs([
+tab_dashboard, tab_compras, tab_ventas, tab_historial, tab_intel, tab_invoice = st.tabs([
     "📊 Cuadro de Mando (Dashboard)",
     "📝 Registro de Compras",
     "📈 Caja Diaria",
     "📜 Historial Multi-Período",
+    "🛒 Inteligencia de Compras",
     "📸 Factura → Odoo"
 ])
 
@@ -168,6 +170,9 @@ with tab_ventas:
 
 with tab_historial:
     render_history_view()
+
+with tab_intel:
+    render_buying_intel_tab()
 
 with tab_invoice:
     render_invoice_tab()

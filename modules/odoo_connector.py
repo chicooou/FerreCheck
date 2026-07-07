@@ -432,3 +432,89 @@ class OdooRPC:
                 'ref': bill.get('ref') or ""
             })
         return formatted_bills
+
+    def fetch_sales_history_by_product(self, months: int = 12) -> List[Dict[str, Any]]:
+        """
+        Obtiene el historial de líneas de venta (sale.order.line) de los últimos N meses.
+        """
+        import datetime
+        from dateutil.relativedelta import relativedelta
+        
+        start_date = datetime.date.today() - relativedelta(months=months)
+        start_date_str = start_date.strftime('%Y-%m-01 00:00:00')
+        
+        domain = [
+            ('order_id.state', 'in', ['sale', 'done']),
+            ('product_id.active', '=', True),
+            ('order_id.date_order', '>=', start_date_str)
+        ]
+        
+        fields = ['id', 'product_id', 'product_uom_qty', 'order_id']
+        lines = self._execute('sale.order.line', 'search_read', [domain], {'fields': fields})
+        
+        # Recuperar información del default_code
+        # Esto podría requerir una lectura extra de product.product si sale.order.line no tiene default_code
+        # Odoo por defecto incluye el código en el nombre del display de la tupla product_id,
+        # pero es mejor consultarlo si es posible. Para simplificar y por velocidad, extraemos info del product_id
+        
+        formatted_lines = []
+        for line in lines:
+            prod_tuple = line.get('product_id', [False, ""])
+            order_tuple = line.get('order_id', [False, ""])
+            
+            # Necesitamos la fecha de la orden, para eso leemos sale.order si no la tenemos.
+            # search_read en sale.order.line con order_id puede darnos el nombre de la orden.
+            # En odoo 15+ se puede usar related fields. Vamos a asumir que order_id no trae la fecha.
+            # Para optimizar, mejor agrupar y hacer search de sale.order.
+            
+            formatted_lines.append({
+                'id': line.get('id'),
+                'product_id': prod_tuple,
+                'product_uom_qty': line.get('product_uom_qty', 0.0),
+                'order_id': order_tuple[0] if isinstance(order_tuple, list) else order_tuple
+            })
+            
+        # Como necesitamos las fechas de los order_ids
+        order_ids = list(set([l['order_id'] for l in formatted_lines if l['order_id']]))
+        if not order_ids:
+            return []
+            
+        orders = self._execute('sale.order', 'search_read', [[('id', 'in', order_ids)]], {'fields': ['id', 'date_order']})
+        order_date_map = {o['id']: o.get('date_order') for o in orders}
+        
+        # También mapeamos default_code de los productos
+        product_ids = list(set([l['product_id'][0] for l in formatted_lines if isinstance(l['product_id'], list)]))
+        products = self._execute('product.product', 'search_read', [[('id', 'in', product_ids)]], {'fields': ['id', 'default_code']})
+        prod_code_map = {p['id']: p.get('default_code', '') for p in products}
+        
+        for l in formatted_lines:
+            l['date_order'] = order_date_map.get(l['order_id'])
+            if isinstance(l['product_id'], list) and l['product_id']:
+                l['default_code'] = prod_code_map.get(l['product_id'][0], '')
+            else:
+                l['default_code'] = ''
+                
+        return formatted_lines
+
+    def fetch_products_stock(self, product_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """
+        Consulta qty_available en product.product para una lista de IDs.
+        Retorna {product_id: {"name": ..., "code": ..., "stock": ..., "uom": ...}}
+        """
+        if not product_ids:
+            return {}
+            
+        domain = [('id', 'in', product_ids)]
+        fields = ['id', 'name', 'default_code', 'qty_available', 'uom_id']
+        products = self._execute('product.product', 'search_read', [domain], {'fields': fields})
+        
+        result = {}
+        for p in products:
+            uom = p.get('uom_id', [False, "Unidades"])
+            result[p['id']] = {
+                "name": p.get('name', ''),
+                "code": p.get('default_code') or '',
+                "stock": float(p.get('qty_available', 0.0)),
+                "uom": uom[1] if isinstance(uom, list) else str(uom)
+            }
+        return result
