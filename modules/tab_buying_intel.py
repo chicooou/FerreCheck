@@ -76,6 +76,7 @@ def render_buying_intel_tab():
         ### Criterios de Clasificación (¿De dónde salen las tablas?)
         *   🔥 **Alta Rotación:** Productos de **venta diaria segura** que es imposible que nos hagan falta. Criterio: Vendidos en al menos el **90% de los meses** analizados **Y** están en el **Top 30%** de mayor volumen de unidades vendidas.
         *   ⚡ **Rotación Media:** Productos de movimiento frecuente pero no masivo. Criterio: Vendidos en al menos el **75% de los meses** analizados (pero sin alcanzar el volumen del top).
+        *   📈 **Top 20% más vendidos (Pareto 80/20):** Los productos estrella de la ferretería por **volumen acumulado total de ventas** sin importar su regularidad en meses. Representan el núcleo de movimiento físico de mercancía.
         
         ### Reglas de Semáforo (Stock vs. Proyección)
         El semáforo se calcula comparando tu **Stock Actual** versus la **Proyección de ventas del mes** (Promedio mensual + 15% de colchón de seguridad):
@@ -96,8 +97,9 @@ def render_buying_intel_tab():
             
     # Cargar datos en session_state si no están
     if "bi_plan_data" not in st.session_state:
-        plan, ts, win = load_analysis_cache()
-        st.session_state.bi_plan_data = plan
+        plan_es, plan_par, ts, win = load_analysis_cache()
+        st.session_state.bi_plan_data = plan_es
+        st.session_state.bi_pareto_data = plan_par
         st.session_state.bi_last_run_ts = ts
         st.session_state.bi_months_window = win
         
@@ -130,8 +132,9 @@ def render_buying_intel_tab():
         if st.button("🔄 Actualizar desde Odoo", disabled=not odoo_available, use_container_width=True, key="bi_update_btn"):
             with st.spinner("Analizando historial de ventas en Odoo..."):
                 try:
-                    plan = run_full_analysis(odoo, months_window=selected_win)
-                    st.session_state.bi_plan_data = plan
+                    plan_es, plan_par = run_full_analysis(odoo, months_window=selected_win)
+                    st.session_state.bi_plan_data = plan_es
+                    st.session_state.bi_pareto_data = plan_par
                     st.session_state.bi_last_run_ts = datetime.utcnow().isoformat()
                     st.session_state.bi_months_window = selected_win
                     st.success("Análisis completado.")
@@ -141,6 +144,7 @@ def render_buying_intel_tab():
 
     # Preparar datos combinados
     plan_odoo = st.session_state.get("bi_plan_data", [])
+    plan_pareto = st.session_state.get("bi_pareto_data", [])
     manual_prods_raw = load_manual_products()
     plan_manual = [compute_manual_entry(p) for p in manual_prods_raw]
     
@@ -148,10 +152,10 @@ def render_buying_intel_tab():
     # Re-ordenar la combinación por urgencia y luego por a_comprar
     full_plan.sort(key=lambda x: (x.get("urgencia", 0), x.get("a_comprar", 0)), reverse=True)
 
-    if not full_plan:
+    if not full_plan and not plan_pareto:
         st.info("No hay productos esenciales detectados ni agregados manualmente. Presiona 'Actualizar desde Odoo' o agrega productos manualmente.")
     else:
-        # KPIs
+        # KPIs (Basados en esenciales + manuales)
         criticos = sum(1 for p in full_plan if p["urgencia"] == 3)
         alerta = sum(1 for p in full_plan if p["urgencia"] == 2)
         ok = sum(1 for p in full_plan if p["urgencia"] == 1)
@@ -217,6 +221,32 @@ def render_buying_intel_tab():
             _render_product_table(df_rm, "rm")
         else:
             st.info("No hay productos de Rotación Media en esta vista.")
+
+        st.write("---")
+
+        # TABLA 3: PARETO 80/20 (Top 20% más vendidos por volumen)
+        st.markdown(f"### 📈 **TOP 20% MÁS VENDIDOS** (Pareto 80/20) ({len(plan_pareto)} productos)")
+        st.caption("Los productos estrella de la ferretería por volumen acumulado total de ventas. Mueven el grueso del inventario.")
+        
+        filt_par = st.radio(
+            "Filtrar Top Pareto:", 
+            ["Todos", "🔴 Críticos", "🟡 Por Reponer", "🟢 OK"], 
+            horizontal=True, 
+            key="bi_filter_par"
+        )
+        
+        df_par = pd.DataFrame(plan_pareto)
+        if not df_par.empty:
+            if filt_par == "🔴 Críticos":
+                df_par = df_par[df_par["urgencia"] == 3]
+            elif filt_par == "🟡 Por Reponer":
+                df_par = df_par[df_par["urgencia"] == 2]
+            elif filt_par == "🟢 OK":
+                df_par = df_par[df_par["urgencia"] == 1]
+                
+            _render_product_table(df_par, "par")
+        else:
+            st.info("No hay productos en el Top 20% más vendidos en esta vista.")
 
     st.write("---")
     

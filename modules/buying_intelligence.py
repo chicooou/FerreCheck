@@ -209,7 +209,28 @@ def get_actual_months_span(raw_lines: List[Dict[str, Any]], months_window: int) 
     diff_months = (today.year - oldest.year) * 12 + (today.month - oldest.month) + 1
     return max(1, min(months_window, diff_months))
 
-def run_full_analysis(odoo_client, months_window: int = 12) -> List[Dict[str, Any]]:
+def get_top_20_percent_products(sales_map: Dict[int, Dict[str, Any]], total_months_in_range: int) -> List[Dict[str, Any]]:
+    """Obtiene el Top 20% de productos con mayor volumen total de ventas (Pareto 80/20)."""
+    all_products = []
+    for prod_id, sm in sales_map.items():
+        all_products.append({
+            "product_id": prod_id,
+            "name": sm["name"],
+            "code": sm["code"],
+            "promedio_mensual": sm["promedio_mensual"],
+            "n_meses": sm["n_meses"],
+            "presencia_pct": (sm["n_meses"] / total_months_in_range) * 100.0 if total_months_in_range > 0 else 0.0,
+            "total_qty_vendida": sm["total_qty_vendida"]
+        })
+    # Ordenar por total vendido
+    all_products.sort(key=lambda x: x["total_qty_vendida"], reverse=True)
+    num_top = max(1, int(len(all_products) * 0.20))
+    top_20 = all_products[:num_top]
+    for p in top_20:
+        p["clasificacion"] = "Pareto 80/20"
+    return top_20
+
+def run_full_analysis(odoo_client, months_window: int = 12) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Orquesta el flujo completo obteniendo datos de Odoo.
     """
@@ -222,25 +243,31 @@ def run_full_analysis(odoo_client, months_window: int = 12) -> List[Dict[str, An
     # 2. Construir mapa de ventas y clasificar
     sales_map = build_product_sales_map(raw_lines)
     essential = classify_essential_products(sales_map, total_months_in_range=real_months)
+    pareto_candidates = get_top_20_percent_products(sales_map, real_months)
     
-    # 3. Obtener stock
-    product_ids = [p["product_id"] for p in essential]
-    stock_map = odoo_client.fetch_products_stock(product_ids)
+    # 3. Obtener stock para la unión de ambos listados
+    essential_ids = [p["product_id"] for p in essential]
+    pareto_ids = [p["product_id"] for p in pareto_candidates]
+    union_ids = list(set(essential_ids + pareto_ids))
     
-    # 4. Calcular plan
-    plan = compute_purchase_plan(essential, stock_map)
+    stock_map = odoo_client.fetch_products_stock(union_ids)
+    
+    # 4. Calcular planes
+    plan_essential = compute_purchase_plan(essential, stock_map)
+    plan_pareto = compute_purchase_plan(pareto_candidates, stock_map)
     
     # 5. Guardar en caché
-    save_analysis_cache(plan, months_window)
-    return plan
+    save_analysis_cache(plan_essential, plan_pareto, months_window)
+    return plan_essential, plan_pareto
 
-def save_analysis_cache(plan: List[Dict[str, Any]], months_window: int):
+def save_analysis_cache(essential_plan: List[Dict[str, Any]], pareto_plan: List[Dict[str, Any]], months_window: int):
     """Guarda el último análisis en cache."""
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
     payload = {
         "timestamp": datetime.datetime.utcnow().isoformat(),
         "months_window": months_window,
-        "products": plan
+        "products": essential_plan,
+        "pareto_products": pareto_plan
     }
     try:
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
@@ -248,16 +275,21 @@ def save_analysis_cache(plan: List[Dict[str, Any]], months_window: int):
     except Exception:
         pass
 
-def load_analysis_cache() -> Tuple[List[Dict[str, Any]], str, int]:
-    """Carga el cache. Retorna (plan, timestamp, months_window)."""
+def load_analysis_cache() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], str, int]:
+    """Carga el cache. Retorna (essential_plan, pareto_plan, timestamp, months_window)."""
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, "r", encoding="utf-8") as f:
                 payload = json.load(f)
-                return payload.get("products", []), payload.get("timestamp"), payload.get("months_window", 12)
+                return (
+                    payload.get("products", []),
+                    payload.get("pareto_products", []),
+                    payload.get("timestamp"),
+                    payload.get("months_window", 12)
+                )
         except Exception:
             pass
-    return [], "", 12
+    return [], [], "", 12
 
 def save_manual_products(products: List[Dict[str, Any]]):
     """Guarda productos manuales."""

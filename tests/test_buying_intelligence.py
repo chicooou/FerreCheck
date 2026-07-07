@@ -125,5 +125,21 @@ class TestBuyingIntelligence(unittest.TestCase):
         self.assertEqual(res["semaforo"], "🟢")
         self.assertEqual(res["a_comprar"], 0.0)
 
+    def test_get_top_20_percent_products(self):
+        from modules.buying_intelligence import get_top_20_percent_products
+        # 5 productos, top 20% es 1 producto
+        sales_map = {
+            1: {"name": "P1", "code": "1", "promedio_mensual": 10.0, "n_meses": 12, "total_qty_vendida": 500.0},
+            2: {"name": "P2", "code": "2", "promedio_mensual": 5.0, "n_meses": 12, "total_qty_vendida": 100.0},
+            3: {"name": "P3", "code": "3", "promedio_mensual": 2.0, "n_meses": 12, "total_qty_vendida": 50.0},
+            4: {"name": "P4", "code": "4", "promedio_mensual": 1.0, "n_meses": 12, "total_qty_vendida": 20.0},
+            5: {"name": "P5", "code": "5", "promedio_mensual": 0.5, "n_meses": 12, "total_qty_vendida": 10.0},
+        }
+        top_20 = get_top_20_percent_products(sales_map, 12)
+        # 20% de 5 = 1
+        self.assertEqual(len(top_20), 1)
+        self.assertEqual(top_20[0]["product_id"], 1)
+        self.assertEqual(top_20[0]["clasificacion"], "Pareto 80/20")
+
 if __name__ == '__main__':
     unittest.main()
