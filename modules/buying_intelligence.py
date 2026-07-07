@@ -11,11 +11,14 @@ from dateutil.relativedelta import relativedelta
 
 CACHE_FILE = os.path.join("data", "essential_products_cache.json")
 MANUAL_FILE = os.path.join("data", "manual_essential_products.json")
+import math
 
 UMBRAL_CRITICO = 0.50
 UMBRAL_ALERTA = 0.90
 FACTOR_SEGURIDAD = 1.15
-MIN_PRESENCIA_FRACCION = 0.75
+MIN_PRESENCIA_ALTA = 0.90
+MIN_PRESENCIA_MEDIA = 0.75
+PERCENTIL_VOLUMEN_ALTA = 70.0  # Top 30% volumen
 
 def build_product_sales_map(raw_lines: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
     """
@@ -78,37 +81,55 @@ def build_product_sales_map(raw_lines: List[Dict[str, Any]]) -> Dict[int, Dict[s
 def classify_essential_products(sales_map: Dict[int, Dict[str, Any]], total_months_in_range: int) -> List[Dict[str, Any]]:
     """
     Filtra los productos que aparecen consistentemente y los clasifica.
+    Criterio estricto:
+      - Alta Rotación: Presencia >= 90% Y Volumen Promedio >= Percentil 70 (Top 30%)
+      - Rotación Media: Presencia >= 75% que no cumplan con lo anterior
     """
     if total_months_in_range <= 0:
         total_months_in_range = 1
         
-    essential = []
+    candidates = []
     
     for prod_id, sm in sales_map.items():
         presencia_fraccion = sm["n_meses"] / total_months_in_range
-        if presencia_fraccion >= MIN_PRESENCIA_FRACCION:
-            essential.append({
+        if presencia_fraccion >= MIN_PRESENCIA_MEDIA:
+            candidates.append({
                 "product_id": prod_id,
                 "name": sm["name"],
                 "code": sm["code"],
                 "promedio_mensual": sm["promedio_mensual"],
                 "n_meses": sm["n_meses"],
-                "presencia_pct": presencia_fraccion * 100.0
+                "presencia_pct": presencia_fraccion * 100.0,
+                "presencia_fraccion": presencia_fraccion
             })
             
-    # Ordenar por promedio mensual descendente
-    essential.sort(key=lambda x: x["promedio_mensual"], reverse=True)
+    if not candidates:
+        return []
+        
+    # Calcular percentil 70 del volumen promedio
+    promedios = [p["promedio_mensual"] for p in candidates]
+    promedios.sort()
     
-    # Clasificación Top 20%
-    num_top = max(1, int(len(essential) * 0.20))
-    for i, prod in enumerate(essential):
-        if i < num_top:
+    # Cálculo del percentil usando interpolación lineal simple
+    k = (len(promedios) - 1) * (PERCENTIL_VOLUMEN_ALTA / 100.0)
+    f = math.floor(k)
+    c = math.ceil(k)
+    if f == c:
+        p70_val = promedios[int(k)]
+    else:
+        p70_val = promedios[int(f)] * (c - k) + promedios[int(c)] * (k - f)
+        
+    for prod in candidates:
+        if prod["presencia_fraccion"] >= MIN_PRESENCIA_ALTA and prod["promedio_mensual"] >= p70_val:
             prod["clasificacion"] = "Alta Rotación"
         else:
             prod["clasificacion"] = "Rotación Media"
             
-    return essential
-
+        del prod["presencia_fraccion"]
+        
+    # Ordenar por promedio mensual descendente
+    candidates.sort(key=lambda x: x["promedio_mensual"], reverse=True)
+    return candidates
 def determine_purchase_status(cobertura_pct: float) -> Tuple[str, str, int]:
     """Retorna (semaforo, status, urgencia)"""
     if cobertura_pct < UMBRAL_CRITICO * 100:

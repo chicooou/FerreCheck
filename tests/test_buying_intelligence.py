@@ -28,23 +28,63 @@ class TestBuyingIntelligence(unittest.TestCase):
         self.assertEqual(sales_map[2]["total_qty_vendida"], 50.0)
         self.assertEqual(sales_map[2]["n_meses"], 1)
 
-    def test_classify_presencia_minima(self):
-        sales_map = build_product_sales_map(self.raw_lines)
-        # Testing with 3 months range. Product 1 is in 2 months (66%). Product 2 is in 1 month (33%).
-        # Our threshold is 75%, so neither should be essential if we require 75%.
-        # Let's adjust window to 2 months. Then Prod 1 is 100%, Prod 2 is 50%.
-        essential = classify_essential_products(sales_map, 2)
-        self.assertEqual(len(essential), 1)
-        self.assertEqual(essential[0]["product_id"], 1)
-
-    def test_classify_presencia_total(self):
-        sales_map = build_product_sales_map(self.raw_lines)
-        # Window of 1 month. Both are 100% or more.
-        essential = classify_essential_products(sales_map, 1)
-        self.assertEqual(len(essential), 2)
-        # Should be sorted by promedio_mensual desc (Prod 1 then Prod 2)
-        self.assertEqual(essential[0]["product_id"], 1)
-        self.assertEqual(essential[1]["product_id"], 2)
+    def test_classify_dual_criteria(self):
+        # Queremos probar múltiples candidatos:
+        # P1: pres=100% (12m/12m), vol=100 (Alta Rotación si supera percentil)
+        # P2: pres=100% (12m/12m), vol=10 (Bajo volumen, debería ser Rotación Media)
+        # P3: pres=80% (9m/12m), vol=200 (Alta presencia pero < 90%, debería ser Rotación Media)
+        # P4: pres=50% (6m/12m), vol=500 (No es candidato, <75% presencia)
+        
+        # Simulamos un sales_map ya estructurado
+        sales_map = {
+            1: {"name": "P1", "code": "1", "promedio_mensual": 100.0, "n_meses": 12},
+            2: {"name": "P2", "code": "2", "promedio_mensual": 10.0, "n_meses": 12},
+            3: {"name": "P3", "code": "3", "promedio_mensual": 200.0, "n_meses": 9},
+            4: {"name": "P4", "code": "4", "promedio_mensual": 500.0, "n_meses": 6},
+        }
+        
+        # Candidates: P1, P2, P3. (P4 excluded because 6/12 = 50% < 75%)
+        # Candidates promedios: [10.0, 100.0, 200.0]
+        # P70 of [10.0, 100.0, 200.0] is:
+        # sorted: [10, 100, 200]. len = 3. k = 2 * 0.7 = 1.4.
+        # f = 1, c = 2. p70_val = 100 * 0.6 + 200 * 0.4 = 140.0
+        # P1: pres=100% >= 90%, vol=100 < 140 -> Rotación Media (no supera P70)
+        # P2: pres=100% >= 90%, vol=10 < 140 -> Rotación Media (no supera P70)
+        # P3: pres=9/12 = 75% < 90% -> Rotación Media (no cumple presencia de Alta)
+        # En este escenario particular, nadie tiene >= 90% Y >= 140 (sólo P3 tiene >=140 pero no tiene presencia >=90%).
+        
+        essential = classify_essential_products(sales_map, 12)
+        # P4 queda fuera, quedan 3
+        self.assertEqual(len(essential), 3)
+        self.assertTrue(all(p["clasificacion"] == "Rotación Media" for p in essential))
+        
+        # Hagamos otro escenario donde alguien califica como Alta Rotación:
+        # P1: pres=100%, vol=300
+        # P2: pres=100%, vol=100
+        # P3: pres=80%, vol=200
+        sales_map_2 = {
+            1: {"name": "P1", "code": "1", "promedio_mensual": 300.0, "n_meses": 12},
+            2: {"name": "P2", "code": "2", "promedio_mensual": 100.0, "n_meses": 12},
+            3: {"name": "P3", "code": "3", "promedio_mensual": 200.0, "n_meses": 10},
+        }
+        # Candidates: P1, P2, P3 (all >=75%).
+        # promedios sorted: [100.0, 200.0, 300.0]. len=3. k=1.4. p70_val = 200 * 0.6 + 300 * 0.4 = 240.0.
+        # P1: pres=100% >= 90%, vol=300 >= 240 -> Alta Rotación
+        # P2: pres=100% >= 90%, vol=100 < 240 -> Rotación Media
+        # P3: pres=10/12 = 83.3% < 90% -> Rotación Media
+        
+        essential_2 = classify_essential_products(sales_map_2, 12)
+        self.assertEqual(len(essential_2), 3)
+        
+        # P1 (id 1) debe ser Alta Rotación
+        p1 = next(p for p in essential_2 if p["product_id"] == 1)
+        self.assertEqual(p1["clasificacion"], "Alta Rotación")
+        
+        # P2 y P3 deben ser Rotación Media
+        p2 = next(p for p in essential_2 if p["product_id"] == 2)
+        p3 = next(p for p in essential_2 if p["product_id"] == 3)
+        self.assertEqual(p2["clasificacion"], "Rotación Media")
+        self.assertEqual(p3["clasificacion"], "Rotación Media")
 
     def test_determine_status(self):
         # < 50%

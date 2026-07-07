@@ -15,18 +15,65 @@ from modules.buying_intelligence import (
     compute_manual_entry
 )
 
+def _render_product_table(df_sub: pd.DataFrame, key_suffix: str):
+    """Helper para renderizar la tabla de productos de forma estandarizada."""
+    if df_sub.empty:
+        st.info("No hay productos en esta categoría que coincidan con el filtro seleccionado.")
+        return
+
+    df_visual = df_sub[["semaforo", "nombre", "codigo", "stock_actual", "promedio_mensual", "proyeccion_mes", "a_comprar", "cobertura_pct", "fuente"]].copy()
+    df_visual = df_visual.rename(columns={
+        "semaforo": "🚦",
+        "nombre": "Producto",
+        "codigo": "Código",
+        "stock_actual": "Stock",
+        "promedio_mensual": "Prom/Mes",
+        "proyeccion_mes": "Proyección",
+        "a_comprar": "Comprar",
+        "cobertura_pct": "Cobertura %",
+        "fuente": "Fuente"
+    })
+    
+    max_proy = float(df_visual["Proyección"].max()) if df_visual["Proyección"].max() > 0 else 100.0
+    
+    st.dataframe(
+        df_visual,
+        column_config={
+            "Comprar": st.column_config.ProgressColumn(
+                "Comprar",
+                help="Cantidad requerida a comprar",
+                format="%.0f",
+                min_value=0,
+                max_value=max_proy,
+            ),
+            "Cobertura %": st.column_config.NumberColumn(
+                "Cobertura %",
+                format="%.1f%%"
+            ),
+            "Stock": st.column_config.NumberColumn(format="%.1f"),
+            "Prom/Mes": st.column_config.NumberColumn(format="%.1f"),
+            "Proyección": st.column_config.NumberColumn(format="%.1f"),
+        },
+        hide_index=True,
+        use_container_width=True,
+        key=f"df_table_{key_suffix}"
+    )
+
 def render_buying_intel_tab():
     st.markdown("## 🛒 Inteligencia de Compras — Productos Esenciales")
     st.markdown("Identifica los productos de mayor rotación y planifica tus compras usando datos históricos reales.")
     
-    with st.expander("ℹ️ ¿Cómo funciona este semáforo?"):
+    with st.expander("ℹ️ ¿Cómo funciona este semáforo y clasificación?"):
         st.markdown("""
-        Solo aparecen aquí los **Productos Esenciales**: aquellos que se venden con alta frecuencia constante (presentes en al menos el 75% de los meses analizados). 
+        ### Criterios de Clasificación (¿De dónde salen las tablas?)
+        *   🔥 **Alta Rotación:** Productos de **venta diaria segura** que es imposible que nos hagan falta. Criterio: Vendidos en al menos el **90% de los meses** analizados **Y** están en el **Top 30%** de mayor volumen de unidades vendidas.
+        *   ⚡ **Rotación Media:** Productos de movimiento frecuente pero no masivo. Criterio: Vendidos en al menos el **75% de los meses** analizados (pero sin alcanzar el volumen del top).
         
-        El semáforo se calcula comparando tu **Stock Actual** versus la **Proyección de ventas del mes** (Promedio mensual + 15% de seguridad):
-        * 🔴 **Críticos (Comprar Ya):** Tienes menos del 50% del inventario necesario para cubrir este mes. Riesgo inminente de quedarte sin stock.
-        * 🟡 **Alerta (Reponer Pronto):** Tienes entre el 50% y el 90% del inventario necesario. Considera agregarlos al próximo pedido.
-        * 🟢 **En Orden (OK):** Tienes suficiente stock (más del 90%) para cubrir las ventas proyectadas de este mes.
+        ### Reglas de Semáforo (Stock vs. Proyección)
+        El semáforo se calcula comparando tu **Stock Actual** versus la **Proyección de ventas del mes** (Promedio mensual + 15% de colchón de seguridad):
+        * 🔴 **Críticos (Comprar Ya):** Tienes menos del 50% del inventario necesario para cubrir este mes. Riesgo inminente de quiebre de stock.
+        * 🟡 **Alerta (Reponer Pronto):** Tienes entre el 50% y el 90% del inventario necesario. Conviene agregarlos al próximo pedido.
+        * 🟢 **En Orden (OK):** Tienes suficiente stock (más del 90%) para cubrir el mes sin problemas.
         """)
     
     odoo = get_odoo_client()
@@ -72,7 +119,7 @@ def render_buying_intel_tab():
         
     with col_btn:
         st.write(" ") # spacer
-        if st.button("🔄 Actualizar desde Odoo", disabled=not odoo_available, use_container_width=True):
+        if st.button("🔄 Actualizar desde Odoo", disabled=not odoo_available, use_container_width=True, key="bi_update_btn"):
             with st.spinner("Analizando historial de ventas en Odoo..."):
                 try:
                     plan = run_full_analysis(odoo, months_window=selected_win)
@@ -109,59 +156,60 @@ def render_buying_intel_tab():
         
         st.write("---")
         
-        # Filtros
-        filtro = st.radio("Filtrar por estado:", ["Todos", "🔴 Críticos", "🟡 Por Reponer", "🟢 OK"], horizontal=True, key="bi_filter_radio")
+        # Separar por clasificación
+        alta_rotacion = [p for p in full_plan if p.get("clasificacion") == "Alta Rotación"]
+        media_rotacion = [p for p in full_plan if p.get("clasificacion") == "Rotación Media"]
         
-        df = pd.DataFrame(full_plan)
-        if filtro == "🔴 Críticos":
-            df = df[df["urgencia"] == 3]
-        elif filtro == "🟡 Por Reponer":
-            df = df[df["urgencia"] == 2]
-        elif filtro == "🟢 OK":
-            df = df[df["urgencia"] == 1]
-            
-        if not df.empty:
-            df_visual = df[["semaforo", "nombre", "codigo", "stock_actual", "promedio_mensual", "proyeccion_mes", "a_comprar", "cobertura_pct", "fuente"]].copy()
-            df_visual = df_visual.rename(columns={
-                "semaforo": "🚦",
-                "nombre": "Producto",
-                "codigo": "Código",
-                "stock_actual": "Stock",
-                "promedio_mensual": "Prom/Mes",
-                "proyeccion_mes": "Proyección",
-                "a_comprar": "Comprar",
-                "cobertura_pct": "Cobertura %",
-                "fuente": "Fuente"
-            })
-            
-            # Formatear numéricos para display, pero usar column_config para interactividad
-            max_proy = float(df_visual["Proyección"].max()) if df_visual["Proyección"].max() > 0 else 100.0
-            
-            st.dataframe(
-                df_visual,
-                column_config={
-                    "Comprar": st.column_config.ProgressColumn(
-                        "Comprar",
-                        help="Cantidad requerida a comprar",
-                        format="%.0f",
-                        min_value=0,
-                        max_value=max_proy,
-                    ),
-                    "Cobertura %": st.column_config.NumberColumn(
-                        "Cobertura %",
-                        format="%.1f%%"
-                    ),
-                    "Stock": st.column_config.NumberColumn(format="%.1f"),
-                    "Prom/Mes": st.column_config.NumberColumn(format="%.1f"),
-                    "Proyección": st.column_config.NumberColumn(format="%.1f"),
-                },
-                hide_index=True,
-                use_container_width=True
-            )
-            st.caption("Proyección = Promedio Mensual × 1.15 (colchón de seguridad 15%)")
+        # TABLA 1: ALTA ROTACIÓN
+        st.markdown(f"### 🔥 **ALTA ROTACIÓN** — Comprar en Prioridad ({len(alta_rotacion)} productos)")
+        st.caption("Productos de venta casi diaria garantizada. No deben faltar en stock.")
+        
+        filt_ar = st.radio(
+            "Filtrar Alta Rotación:", 
+            ["Todos", "🔴 Críticos", "🟡 Por Reponer", "🟢 OK"], 
+            horizontal=True, 
+            key="bi_filter_ar"
+        )
+        
+        df_ar = pd.DataFrame(alta_rotacion)
+        if not df_ar.empty:
+            if filt_ar == "🔴 Críticos":
+                df_ar = df_ar[df_ar["urgencia"] == 3]
+            elif filt_ar == "🟡 Por Reponer":
+                df_ar = df_ar[df_ar["urgencia"] == 2]
+            elif filt_ar == "🟢 OK":
+                df_ar = df_ar[df_ar["urgencia"] == 1]
+                
+            _render_product_table(df_ar, "ar")
         else:
-            st.info("No hay productos que coincidan con el filtro seleccionado.")
-            
+            st.info("No hay productos de Alta Rotación en esta vista.")
+
+        st.write("---")
+
+        # TABLA 2: ROTACIÓN MEDIA
+        st.markdown(f"### ⚡ **ROTACIÓN MEDIA** — Planificar Pedido ({len(media_rotacion)} productos)")
+        st.caption("Productos con venta frecuente pero volumen moderado. Planificables a mediano plazo.")
+        
+        filt_rm = st.radio(
+            "Filtrar Rotación Media:", 
+            ["Todos", "🔴 Críticos", "🟡 Por Reponer", "🟢 OK"], 
+            horizontal=True, 
+            key="bi_filter_rm"
+        )
+        
+        df_rm = pd.DataFrame(media_rotacion)
+        if not df_rm.empty:
+            if filt_rm == "🔴 Críticos":
+                df_rm = df_rm[df_rm["urgencia"] == 3]
+            elif filt_rm == "🟡 Por Reponer":
+                df_rm = df_rm[df_rm["urgencia"] == 2]
+            elif filt_rm == "🟢 OK":
+                df_rm = df_rm[df_rm["urgencia"] == 1]
+                
+            _render_product_table(df_rm, "rm")
+        else:
+            st.info("No hay productos de Rotación Media en esta vista.")
+
     st.write("---")
     
     # Manejo manual
