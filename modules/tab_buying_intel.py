@@ -19,6 +19,16 @@ def render_buying_intel_tab():
     st.markdown("## 🛒 Inteligencia de Compras — Productos Esenciales")
     st.markdown("Identifica los productos de mayor rotación y planifica tus compras usando datos históricos reales.")
     
+    with st.expander("ℹ️ ¿Cómo funciona este semáforo?"):
+        st.markdown("""
+        Solo aparecen aquí los **Productos Esenciales**: aquellos que se venden con alta frecuencia constante (presentes en al menos el 75% de los meses analizados). 
+        
+        El semáforo se calcula comparando tu **Stock Actual** versus la **Proyección de ventas del mes** (Promedio mensual + 15% de seguridad):
+        * 🔴 **Críticos (Comprar Ya):** Tienes menos del 50% del inventario necesario para cubrir este mes. Riesgo inminente de quedarte sin stock.
+        * 🟡 **Alerta (Reponer Pronto):** Tienes entre el 50% y el 90% del inventario necesario. Considera agregarlos al próximo pedido.
+        * 🟢 **En Orden (OK):** Tienes suficiente stock (más del 90%) para cubrir las ventas proyectadas de este mes.
+        """)
+    
     odoo = get_odoo_client()
     odoo_available = odoo is not None
     
@@ -55,7 +65,8 @@ def render_buying_intel_tab():
         selected_win_label = st.selectbox(
             "Ventana de análisis", 
             options=list(win_options.keys()), 
-            index=1 # 12 meses default
+            index=1, # 12 meses default
+            key="bi_win_selectbox"
         )
         selected_win = win_options[selected_win_label]
         
@@ -99,7 +110,7 @@ def render_buying_intel_tab():
         st.write("---")
         
         # Filtros
-        filtro = st.radio("Filtrar por estado:", ["Todos", "🔴 Críticos", "🟡 Por Reponer", "🟢 OK"], horizontal=True)
+        filtro = st.radio("Filtrar por estado:", ["Todos", "🔴 Críticos", "🟡 Por Reponer", "🟢 OK"], horizontal=True, key="bi_filter_radio")
         
         df = pd.DataFrame(full_plan)
         if filtro == "🔴 Críticos":
@@ -156,10 +167,10 @@ def render_buying_intel_tab():
     # Manejo manual
     with st.expander("➕ Agregar Producto Manualmente"):
         with st.form("form_manual_product"):
-            nombre = st.text_input("Nombre del Producto *")
-            codigo = st.text_input("Código Interno (opcional)")
-            stock = st.number_input("Stock Actual", min_value=0.0, step=1.0)
-            promedio = st.number_input("Promedio Mensual Estimado (uds)", min_value=1.0, step=1.0)
+            nombre = st.text_input("Nombre del Producto *", key="bi_new_nombre")
+            codigo = st.text_input("Código Interno (opcional)", key="bi_new_codigo")
+            stock = st.number_input("Stock Actual", min_value=0.0, step=1.0, key="bi_new_stock")
+            promedio = st.number_input("Promedio Mensual Estimado (uds)", min_value=1.0, step=1.0, key="bi_new_promedio")
             submitted = st.form_submit_button("💾 Guardar Producto")
             
             if submitted:
@@ -184,14 +195,14 @@ def render_buying_intel_tab():
             st.info("No hay productos manuales registrados.")
         else:
             prod_options = {p["id"]: f"{p['nombre']} (Stock: {p['stock_actual']})" for p in manual_prods_raw}
-            selected_id = st.selectbox("Seleccionar producto manual", options=list(prod_options.keys()), format_func=lambda x: prod_options[x])
+            selected_id = st.selectbox("Seleccionar producto manual", options=list(prod_options.keys()), format_func=lambda x: prod_options[x], key="bi_edit_select")
             
             selected_prod = next((p for p in manual_prods_raw if p["id"] == selected_id), None)
             
             if selected_prod:
                 with st.form("form_edit_manual"):
-                    new_stock = st.number_input("Actualizar Stock", min_value=0.0, value=float(selected_prod["stock_actual"]), step=1.0)
-                    new_prom = st.number_input("Actualizar Promedio Mensual", min_value=1.0, value=float(selected_prod["promedio_mensual"]), step=1.0)
+                    new_stock = st.number_input("Actualizar Stock", min_value=0.0, value=float(selected_prod["stock_actual"]), step=1.0, key="bi_edit_stock")
+                    new_prom = st.number_input("Actualizar Promedio Mensual", min_value=1.0, value=float(selected_prod["promedio_mensual"]), step=1.0, key="bi_edit_prom")
                     
                     c_save, c_del = st.columns(2)
                     with c_save:
