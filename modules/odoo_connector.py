@@ -5,6 +5,7 @@ Módulo de conexión XML-RPC con Odoo Online para la creación de compras y prod
 import xmlrpc.client
 import datetime
 import logging
+import re
 from typing import List, Dict, Any, Optional
 
 # Configurar logger
@@ -118,12 +119,85 @@ class OdooRPC:
                 if prod_matches:
                     return self._format_product_match(prod_matches[0])
 
-        # 3. Buscar por coincidencia parcial en el nombre
+        # 3. Buscar por coincidencia parcial en el nombre completa primero
         matches = self._execute('product.product', 'search_read', 
                                 [[('name', 'ilike', clean_query)]], 
                                 {'fields': ['id', 'name', 'uom_id', 'product_tmpl_id', 'list_price', 'default_code'], 'limit': 1})
         if matches:
             return self._format_product_match(matches[0])
+
+        # 4. Coincidencia inteligente por palabras (tokens)
+        stop_words = {'de', 'del', 'con', 'para', 'por', 'sin', 'los', 'las', 'una', 'uno', 'unos', 'unas', 'con', 'y', 'o', 'el', 'la', 'en'}
+        words = re.findall(r'\b\w+\b', clean_query.lower())
+        significant_words = [w for w in words if w not in stop_words and len(w) >= 3]
+
+        if significant_words:
+            # Ordenar por longitud de mayor a menor (las palabras más largas suelen ser más específicas)
+            significant_words.sort(key=len, reverse=True)
+            
+            # Intento A: Que contenga todas las palabras significativas en cualquier orden
+            domain_and = []
+            for w in significant_words:
+                domain_and.append(('name', 'ilike', w))
+            
+            matches = self._execute('product.product', 'search_read', 
+                                    [domain_and], 
+                                    {'fields': ['id', 'name', 'uom_id', 'product_tmpl_id', 'list_price', 'default_code'], 'limit': 1})
+            if matches:
+                return self._format_product_match(matches[0])
+
+            # Intento B: Si hay más de 2 palabras significativas, intentar con las 2 más largas (las descriptivas principales)
+            if len(significant_words) > 2:
+                top_2_words = significant_words[:2]
+                domain_top_2 = [('name', 'ilike', w) for w in top_2_words]
+                matches = self._execute('product.product', 'search_read', 
+                                        [domain_top_2], 
+                                        {'fields': ['id', 'name', 'uom_id', 'product_tmpl_id', 'list_price', 'default_code'], 'limit': 1})
+                if matches:
+                    return self._format_product_match(matches[0])
+
+        return None
+
+    def find_product_by_code(self, code: str, vendor_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """
+        Busca un producto en Odoo usando un código específico (proveedor o interno).
+        Compara contra:
+        1. default_code (Referencia Interna) de product.product
+        2. barcode (Código de barras) de product.product
+        3. product_code en product.supplierinfo (si se provee vendor_id)
+        """
+        if not code:
+            return None
+        
+        clean_code = str(code).strip()
+        fields = ['id', 'name', 'uom_id', 'product_tmpl_id', 'list_price', 'default_code']
+
+        # 1. Buscar por default_code exacto
+        matches = self._execute('product.product', 'search_read', 
+                                [[('default_code', '=', clean_code)]], 
+                                {'fields': fields, 'limit': 1})
+        if matches:
+            return self._format_product_match(matches[0])
+
+        # 2. Buscar por barcode exacto
+        matches = self._execute('product.product', 'search_read', 
+                                [[('barcode', '=', clean_code)]], 
+                                {'fields': fields, 'limit': 1})
+        if matches:
+            return self._format_product_match(matches[0])
+
+        # 3. Buscar en product.supplierinfo por código de proveedor
+        if vendor_id:
+            supp_domain = [('partner_id', '=', vendor_id), ('product_code', '=', clean_code)]
+            supp_matches = self._execute('product.supplierinfo', 'search_read',
+                                         [supp_domain], {'fields': ['product_tmpl_id'], 'limit': 1})
+            if supp_matches:
+                tmpl_id = supp_matches[0]['product_tmpl_id'][0]
+                prod_matches = self._execute('product.product', 'search_read',
+                                             [[('product_tmpl_id', '=', tmpl_id)]],
+                                             {'fields': fields, 'limit': 1})
+                if prod_matches:
+                    return self._format_product_match(prod_matches[0])
 
         return None
 

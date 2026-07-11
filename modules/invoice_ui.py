@@ -538,16 +538,35 @@ def render_step_3(client: OdooRPC):
                 continue
                 
             match = None
-            # Si ya tiene un id pre-asociado por regla, buscar detalles directos
+            match_origin = "search"
+            
+            # 1. Si ya tiene un id pre-asociado por regla (historial), buscar detalles directos
             if line.get("odoo_product_id"):
                 try:
                     match = client.get_product_details(line["odoo_product_id"])
+                    if match:
+                        match_origin = "rule"
                 except Exception:
                     pass
             
-            # De lo contrario, buscar por descripción
+            # 2. Si no hay match por regla, y la línea tiene supplier_code, buscar por código de proveedor/fabricante
+            supplier_code = line.get("supplier_code")
+            if not match and supplier_code:
+                try:
+                    match = client.find_product_by_code(supplier_code, st.session_state.inv_vendor_id)
+                    if match:
+                        match_origin = "code"
+                except Exception:
+                    pass
+            
+            # 3. De lo contrario, buscar por descripción
             if not match:
                 match = client.search_product(desc, st.session_state.inv_vendor_id)
+                if match:
+                    if supplier_code and match.get("default_code") == supplier_code:
+                        match_origin = "code"
+                    else:
+                        match_origin = "search"
 
             if match:
                 new_matches.append({
@@ -557,7 +576,8 @@ def render_step_3(client: OdooRPC):
                     "odoo_name": match["name"],
                     "uom_id": match["uom_id"],
                     "default_code": match.get("default_code") or "",
-                    "action": "use_existing"
+                    "action": "use_existing",
+                    "match_origin": match_origin
                 })
             else:
                 new_matches.append({
@@ -566,8 +586,9 @@ def render_step_3(client: OdooRPC):
                     "product_id": None,
                     "odoo_name": "",
                     "uom_id": 1, # UoM Unidad por defecto
-                    "default_code": line["supplier_code"] or "",
-                    "action": "create_new"
+                    "default_code": supplier_code or "",
+                    "action": "create_new",
+                    "match_origin": "none"
                 })
                 
     st.session_state.inv_product_matches = new_matches
@@ -584,7 +605,14 @@ def render_step_3(client: OdooRPC):
             
             with col_match:
                 if match["found"] and match.get("action", "use_existing") == "use_existing":
-                    st.success(f"✅ Odoo Match: **[{match['default_code']}] {match['odoo_name']}**")
+                    origin = match.get("match_origin", "search")
+                    if origin == "code":
+                        tag = "🟢 [CÓDIGO]"
+                    elif origin == "rule":
+                        tag = "🧠 [HISTORIAL]"
+                    else:
+                        tag = "🔍 [BÚSQUEDA]"
+                    st.success(f"{tag} Odoo Match: **[{match['default_code']}] {match['odoo_name']}**")
                 elif match.get("action") == "map_existing" and match.get("manually_mapped"):
                     st.info(f"🔗 Vinculado a: **[{match['default_code']}] {match['odoo_name']}**")
                 else:
