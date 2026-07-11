@@ -675,7 +675,14 @@ def render_step_3(client: OdooRPC):
             col_desc, col_match, col_action = st.columns([2, 2, 1])
         
             with col_desc:
-                st.write(f"**Línea**: `{line['description']}` (Cant: {line['quantity']} | Unit: Q {line['price_unit']:.2f})")
+                st.write(f"**Línea**: `{line['description']}` (Cant: {line['quantity']})")
+                line["price_unit"] = st.number_input(
+                    "Costo Unitario Factura (Q):",
+                    min_value=0.0,
+                    value=float(line["price_unit"]),
+                    step=0.05,
+                    key=f"cost_edit_s3_{i}"
+                )
             
             with col_match:
                 if match["found"] and match.get("action", "use_existing") == "use_existing":
