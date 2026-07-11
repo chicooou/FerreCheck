@@ -74,3 +74,25 @@ class TestRulesSplit(unittest.TestCase):
         matched_fuzzy = find_matching_rule(vendor_id, "Cable con Forro Coaxial RG6")
         self.assertIsNotNone(matched_fuzzy)
         self.assertEqual(matched_fuzzy["id"], rule["id"])
+
+    def test_calculate_suggested_pvp(self):
+        import streamlit as st
+        from modules.invoice_ui import calculate_suggested_pvp
+        
+        st.session_state.inv_suggested_margin = 40.0
+        st.session_state.inv_rounding_method = "ceil_integer"
+        
+        # Costo = 10.0, margen = 40%, raw_pvp = 14.0 -> ceil = 14.0
+        self.assertEqual(calculate_suggested_pvp(10.0), 14.0)
+        
+        # Costo = 10.5, margen = 40%, raw_pvp = 14.7 -> ceil = 15.0
+        self.assertEqual(calculate_suggested_pvp(10.5), 15.0)
+        
+        # Redondeo = ceil_half (al 0.50 superior)
+        st.session_state.inv_rounding_method = "ceil_half"
+        # Costo = 10.1, margen = 40%, raw_pvp = 14.14 -> ceil_half = 14.5
+        self.assertEqual(calculate_suggested_pvp(10.1), 14.5)
+        
+        # Redondeo = none (sin redondeo)
+        st.session_state.inv_rounding_method = "none"
+        self.assertAlmostEqual(calculate_suggested_pvp(10.1), 14.14)

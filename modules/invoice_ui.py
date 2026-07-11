@@ -22,6 +22,19 @@ def get_odoo_client() -> Optional[OdooRPC]:
         return None
     return OdooRPC(url, db, username, api_key)
 
+import math
+
+def calculate_suggested_pvp(cost: float) -> float:
+    margin = st.session_state.get("inv_suggested_margin", 30.0) / 100.0
+    raw_pvp = cost * (1.0 + margin)
+    
+    rounding = st.session_state.get("inv_rounding_method", "ceil_integer")
+    if rounding == "ceil_integer":
+        return float(math.ceil(raw_pvp))
+    elif rounding == "ceil_half":
+        return float(math.ceil(raw_pvp * 2.0) / 2.0)
+    return float(raw_pvp)
+
 def initialize_state():
     """Inicializa todas las claves de session_state necesarias para el flujo de factura."""
     if "inv_step" not in st.session_state:
@@ -48,6 +61,10 @@ def initialize_state():
         st.session_state.inv_odoo_vendors = []
     if "inv_odoo_taxes" not in st.session_state:
         st.session_state.inv_odoo_taxes = []
+    if "inv_suggested_margin" not in st.session_state:
+        st.session_state.inv_suggested_margin = 30.0
+    if "inv_rounding_method" not in st.session_state:
+        st.session_state.inv_rounding_method = "ceil_integer"
     if "inv_odoo_products" not in st.session_state:
         st.session_state.inv_odoo_products = []
     if "inv_odoo_connected" not in st.session_state:
@@ -438,6 +455,36 @@ def render_step_2():
         )
         st.session_state.inv_invoice_date = selected_date.strftime("%Y-%m-%d")
 
+    st.markdown("#### 🎯 Margen y Redondeo Sugerido")
+    col_margin, col_rounding = st.columns(2)
+    with col_margin:
+        suggested_margin = st.number_input(
+            "Margen de ganancia sugerido por defecto (%):",
+            min_value=0.0,
+            max_value=500.0,
+            value=float(st.session_state.get("inv_suggested_margin", 30.0)),
+            step=5.0,
+            help="Se utiliza para calcular el precio de venta sugerido (PVP) basado en el costo."
+        )
+        st.session_state.inv_suggested_margin = suggested_margin
+        
+    with col_rounding:
+        rounding_options = ["none", "ceil_integer", "ceil_half"]
+        rounding_labels = {
+            "none": "Sin redondeo (exacto)",
+            "ceil_integer": "Redondear al entero superior (ej. Q 12.15 -> Q 13.00)",
+            "ceil_half": "Redondear a 0.50 superior (ej. Q 12.15 -> Q 12.50)"
+        }
+        
+        selected_rounding = st.selectbox(
+            "Método de redondeo de decimales:",
+            options=rounding_options,
+            format_func=lambda x: rounding_labels[x],
+            index=rounding_options.index(st.session_state.get("inv_rounding_method", "ceil_integer")),
+            help="Configura cómo promediar los decimales a la alta."
+        )
+        st.session_state.inv_rounding_method = selected_rounding
+
     # Preparar columnas para la conversión en la misma tabla
     for row in st.session_state.inv_edited_lines:
         if "unidades_paquete" not in row:
@@ -804,7 +851,7 @@ def render_step_3(client: OdooRPC):
                             share = sp.get("cost_share", 0.5)
                             sub_cost = (price_factura * share) / mult if mult != 0 else 0.0
                             
-                            suggested_sale = sp.get("new_sale_price") if sp.get("new_sale_price") is not None else sub_cost * 1.30
+                            suggested_sale = sp.get("new_sale_price") if sp.get("new_sale_price") is not None else calculate_suggested_pvp(sub_cost)
                             sp["new_sale_price"] = st.number_input(
                                 "PVP sugerido (Q):",
                                 min_value=0.0,
@@ -953,7 +1000,7 @@ def render_step_3(client: OdooRPC):
             elif selected_action == "create_new":
                 col_empty_p, col_new_sale_p = st.columns([0.5, 4.5])
                 with col_new_sale_p:
-                    suggested_sale = match.get("new_sale_price") if match.get("new_sale_price") is not None else line["price_unit"] * 1.30
+                    suggested_sale = match.get("new_sale_price") if match.get("new_sale_price") is not None else calculate_suggested_pvp(line["price_unit"])
                     new_sale_p = st.number_input(
                         "Precio de venta al público sugerido (Q):",
                         min_value=0.0,
@@ -974,7 +1021,7 @@ def render_step_3(client: OdooRPC):
                             bulk_q = st.number_input("Cant. Mínima (ej. 100):", min_value=1.0, value=float(match.get("bulk_quantity", 100.0)), step=1.0, key=f"bq_{i}")
                             match["bulk_quantity"] = bulk_q
                         with col_bp:
-                            bulk_p = st.number_input(f"Precio Total a cobrar por {int(bulk_q)}:", min_value=0.01, value=float(match.get("bulk_price", line["price_unit"] * bulk_q * 1.30)), step=0.5, key=f"bp_{i}")
+                            bulk_p = st.number_input(f"Precio Total a cobrar por {int(bulk_q)}:", min_value=0.01, value=float(match.get("bulk_price", calculate_suggested_pvp(line["price_unit"]) * bulk_q)), step=0.5, key=f"bp_{i}")
                             match["bulk_price"] = bulk_p
 
             save_draft()
