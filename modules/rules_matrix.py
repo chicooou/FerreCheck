@@ -131,10 +131,16 @@ def create_or_update_split_rule(vendor_id: int, vendor_name: str, original_descr
     # Formatear y asegurar tipos en split_products
     formatted_splits = []
     for p in split_products:
+        p_id = p.get("odoo_product_id") if p.get("odoo_product_id") is not None else p.get("product_id")
+        p_code = p.get("odoo_default_code") if p.get("odoo_default_code") is not None else p.get("default_code")
+        
+        if p_id is None:
+            raise KeyError("Falta el identificador de producto ('product_id' o 'odoo_product_id') en el subproducto.")
+            
         formatted_splits.append({
-            "odoo_product_id": int(p["odoo_product_id"]),
+            "odoo_product_id": int(p_id),
             "odoo_name": str(p["odoo_name"]),
-            "odoo_default_code": str(p.get("odoo_default_code") or ""),
+            "odoo_default_code": str(p_code or ""),
             "quantity_multiplier": float(p.get("quantity_multiplier", 1.0)),
             "cost_share": float(p.get("cost_share", 0.5))
         })
