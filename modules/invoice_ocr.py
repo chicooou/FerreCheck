@@ -1,15 +1,16 @@
 """
-Módulo para la extracción de ítems de facturas de compra mediante la API de Google Gemini (Vision LLM).
+Módulo para la extracción de ítems de facturas de compra mediante la API de Google Gemini (Vision LLM)
+utilizando solicitudes HTTP directas para evitar fallos de segmentación de Pydantic/Rust en Python 3.14.
 """
 
 import os
 import json
 import re
+import base64
+import requests
 from typing import Dict, Any, Optional
 from PIL import Image
 import io
-from google import genai
-from google.genai import types
 
 def compress_image(image_bytes: bytes, max_size: int = 1600, quality: int = 85) -> bytes:
     """
@@ -35,7 +36,8 @@ def compress_image(image_bytes: bytes, max_size: int = 1600, quality: int = 85) 
 
 def extract_invoice_data(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
     """
-    Envía la imagen a Gemini 2.5 Flash para extraer los ítems y número de factura en JSON.
+    Envía la imagen a Gemini 2.5 Flash mediante llamadas HTTP directas.
+    Esto previene errores de segmentación de Pydantic v2 en entornos con Python 3.14.
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -50,9 +52,9 @@ def extract_invoice_data(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
 
     # Optimizar imagen antes de enviar
     optimized_bytes = compress_image(image_bytes)
-
-    # Inicializar cliente Gemini
-    client = genai.Client(api_key=api_key)
+    
+    # Codificar a base64
+    base64_image = base64.b64encode(optimized_bytes).decode('utf-8')
 
     system_instruction = (
         "Eres un asistente especializado en extraer datos estructurados de facturas físicas "
@@ -79,31 +81,60 @@ def extract_invoice_data(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
         "}"
     )
 
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "systemInstruction": {
+            "parts": [
+                {
+                    "text": system_instruction
+                }
+            ]
+        },
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": "Extrae los ítems de esta factura de compra en formato JSON."
+                    },
+                    {
+                        "inlineData": {
+                            "mimeType": "image/jpeg",
+                            "data": base64_image
+                        }
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.1,
+            "responseMimeType": "application/json"
+        }
+    }
+
     try:
-        # Cargar parte de imagen
-        image_part = types.Part.from_bytes(
-            data=optimized_bytes,
-            mime_type="image/jpeg" # Convertido a JPEG durante optimización
-        )
-
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=[
-                image_part,
-                "Extrae los ítems de esta factura de compra en formato JSON."
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.1,
-                response_mime_type="application/json"
-            )
-        )
-
-        raw_text = response.text.strip()
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        
+        response_json = response.json()
+        
+        candidates = response_json.get("candidates", [])
+        if not candidates:
+            raise ValueError(f"No se encontraron candidatos en la respuesta de Gemini: {response_json}")
+            
+        content = candidates[0].get("content", {})
+        parts = content.get("parts", [])
+        if not parts:
+            raise ValueError(f"No se encontraron partes de contenido en la respuesta de Gemini: {response_json}")
+            
+        raw_text = parts[0].get("text", "").strip()
         
         # Limpiar posibles bloques markdown sobrantes
         if raw_text.startswith("```"):
-            # Remover ```json del inicio y ``` del final
             raw_text = re.sub(r'^```(?:json)?\n', '', raw_text)
             raw_text = re.sub(r'\n```$', '', raw_text)
             raw_text = raw_text.strip()
@@ -112,7 +143,7 @@ def extract_invoice_data(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
         data = json.loads(raw_text)
         return data
 
-    except json.JSONDecodeError as e:
-        raise ValueError(f"La IA retornó una respuesta que no es JSON válido: {e}. Respuesta: {response.text}")
-    except Exception as e:
-        raise RuntimeError(f"Error al llamar a la API de Gemini: {str(e)}")
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Error al llamar a la API de Gemini mediante HTTP: {str(e)}")
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        raise ValueError(f"Error al procesar la respuesta de Gemini: {str(e)}")
