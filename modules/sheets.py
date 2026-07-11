@@ -281,8 +281,27 @@ def close_period_in_sheets(p: dict):
     sync_all_sales_to_sheets(ventas_diarias, p, estado="Cerrado")
 
 def safe_float(val):
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
     if isinstance(val, str):
-        val = val.replace("Q", "").replace(",", "").strip()
+        val = val.replace("Q", "").strip()
+        if not val:
+            return 0.0
+        val = val.replace(" ", "")
+        if "," in val and "." in val:
+            if val.rfind(",") > val.rfind("."):
+                val = val.replace(".", "").replace(",", ".")
+            else:
+                val = val.replace(",", "")
+        else:
+            if "," in val:
+                parts = val.split(",")
+                if len(parts) == 2 and len(parts[1]) <= 2:
+                    val = val.replace(",", ".")
+                else:
+                    val = val.replace(",", "")
     try:
         return float(val)
     except (ValueError, TypeError):

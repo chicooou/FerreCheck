@@ -96,3 +96,14 @@ class TestRulesSplit(unittest.TestCase):
         # Redondeo = none (sin redondeo)
         st.session_state.inv_rounding_method = "none"
         self.assertAlmostEqual(calculate_suggested_pvp(10.1), 14.14)
+
+    def test_safe_float(self):
+        from modules.sheets import safe_float
+        
+        self.assertEqual(safe_float("1875,58"), 1875.58)
+        self.assertEqual(safe_float("Q1875,58"), 1875.58)
+        self.assertEqual(safe_float("Q 1,875.58"), 1875.58)
+        self.assertEqual(safe_float("1.875,58"), 1875.58)
+        self.assertEqual(safe_float("Q 1875.58"), 1875.58)
+        self.assertEqual(safe_float(1875.58), 1875.58)
+        self.assertEqual(safe_float(None), 0.0)
