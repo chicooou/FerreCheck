@@ -188,7 +188,11 @@ def render_rules_sidebar():
                 col_rule, col_del = st.columns([4, 1])
                 with col_rule:
                     st.caption(f"**{r['vendor_name']}**")
-                    st.write(f"*{r['original_description']}* ➔ **{r['converted_description']}**")
+                    if r.get("rule_type") == "split":
+                        names = [sp.get("odoo_name") or sp.get("new_name") or "Subproducto" for sp in r.get("split_products", [])]
+                        st.write(f"*{r['original_description']}* ➔ **[División: {', '.join(names)}]**")
+                    else:
+                        st.write(f"*{r['original_description']}* ➔ **{r.get('converted_description', '')}**")
                 with col_del:
                     if st.button("🗑️", key=f"del_rule_{r['id']}", help="Eliminar esta regla"):
                         rule_to_delete = r["id"]
