@@ -382,24 +382,30 @@ def render_step_1(client: OdooRPC):
                         # Buscar si hay regla previa
                         rule = find_matching_rule(selected_vendor_id, orig_desc)
                         applied_rule = False
+                        applied_split_rule = None
                         if rule:
-                            orig_qty = qty
-                            qty = qty * rule["quantity_multiplier"]
-                            # Si cambia cantidad, ajustamos proporcionalmente el precio unitario
-                            if rule["quantity_multiplier"] != 0:
-                                price = price / rule["quantity_multiplier"]
-                            applied_rule = True
+                            if rule.get("rule_type") == "split":
+                                applied_rule = True
+                                applied_split_rule = rule
+                            else:
+                                orig_qty = qty
+                                qty = qty * rule["quantity_multiplier"]
+                                # Si cambia cantidad, ajustamos proporcionalmente el precio unitario
+                                if rule["quantity_multiplier"] != 0:
+                                    price = price / rule["quantity_multiplier"]
+                                applied_rule = True
                         
                         processed_lines.append({
                             "original_description": orig_desc,
-                            "description": rule["converted_description"] if rule else orig_desc,
+                            "description": (rule["converted_description"] if rule and rule.get("rule_type") != "split" else orig_desc),
                             "quantity": float(qty),
                             "price_unit": float(price),
                             "supplier_code": sup_code,
                             "applied_rule": applied_rule,
-                            "multiplier": rule["quantity_multiplier"] if rule else 1.0,
-                            "odoo_product_id": rule["odoo_product_id"] if rule else None,
-                            "odoo_default_code": rule["odoo_default_code"] if rule else ""
+                            "applied_split_rule": applied_split_rule,
+                            "multiplier": (rule["quantity_multiplier"] if rule and rule.get("rule_type") != "split" else 1.0),
+                            "odoo_product_id": (rule["odoo_product_id"] if rule and rule.get("rule_type") != "split" else None),
+                            "odoo_default_code": (rule["odoo_default_code"] if rule and rule.get("rule_type") != "split" else "")
                         })
                     
                     st.session_state.inv_edited_lines = processed_lines
@@ -537,6 +543,27 @@ def render_step_3(client: OdooRPC):
                 new_matches.append(existing_matches[desc])
                 continue
                 
+            # Caso 0: Regla de tipo split pre-asociada
+            if line.get("applied_split_rule"):
+                split_rule = line["applied_split_rule"]
+                new_matches.append({
+                    "line_desc": desc,
+                    "found": True,
+                    "action": "split_item",
+                    "match_origin": "rule",
+                    "split_products": [
+                        {
+                            "product_id": sp["odoo_product_id"],
+                            "odoo_name": sp["odoo_name"],
+                            "default_code": sp["odoo_default_code"],
+                            "quantity_multiplier": sp["quantity_multiplier"],
+                            "cost_share": sp["cost_share"]
+                        }
+                        for sp in split_rule["split_products"]
+                    ]
+                })
+                continue
+
             match = None
             match_origin = "search"
             
@@ -619,16 +646,16 @@ def render_step_3(client: OdooRPC):
                     st.warning("⚠️ No se encontró coincidencia en Odoo.")
                 
             with col_action:
-                action_options = ["use_existing", "create_new", "map_existing", "ignore"]
+                action_options = ["use_existing", "create_new", "map_existing", "split_item", "ignore"]
                 action_labels = {
                     "use_existing": "Usar Match Sugerido",
                     "create_new": "Crear Nuevo",
                     "map_existing": "Buscar Catálogo",
+                    "split_item": "Descomponer Línea",
                     "ignore": "Ignorar / Eliminar Línea"
                 }
             
                 if not match["found"]:
-                    # Si no se encontró match, no tiene sentido usar el sugerido
                     action_options.remove("use_existing")
             
                 # Determinar el índice por defecto según el estado actual de match["action"]
@@ -697,6 +724,91 @@ def render_step_3(client: OdooRPC):
                         match["odoo_name"] = selected_p["name"]
                         match["default_code"] = selected_p.get("default_code") or ""
                         match["manually_mapped"] = True
+            elif selected_action == "split_item":
+                if "split_products" not in match or not match["split_products"]:
+                    match["split_products"] = [
+                        {"product_id": None, "odoo_name": "", "default_code": "", "quantity_multiplier": 1.0, "cost_share": 0.5},
+                        {"product_id": None, "odoo_name": "", "default_code": "", "quantity_multiplier": 1.0, "cost_share": 0.5}
+                    ]
+                
+                products = st.session_state.inv_odoo_products
+                def get_prod_label(p):
+                    code = p.get("default_code")
+                    if code:
+                        return f"{p['name']} [{code}]"
+                    return p['name']
+
+                col_empty_n, col_num_splits = st.columns([0.5, 4.5])
+                with col_num_splits:
+                    num_splits = st.number_input(
+                        "Dividir en n productos:",
+                        min_value=2,
+                        max_value=5,
+                        value=len(match["split_products"]),
+                        step=1,
+                        key=f"num_splits_{i}"
+                    )
+                
+                if num_splits != len(match["split_products"]):
+                    if num_splits > len(match["split_products"]):
+                        for _ in range(num_splits - len(match["split_products"])):
+                            match["split_products"].append({"product_id": None, "odoo_name": "", "default_code": "", "quantity_multiplier": 1.0, "cost_share": 1.0 / num_splits})
+                    else:
+                        match["split_products"] = match["split_products"][:num_splits]
+                
+                total_percentage = 0.0
+                for j, sp in enumerate(match["split_products"]):
+                    st.markdown(f"   ↳ **Sub-producto #{j+1}**")
+                    col_empty, col_p_select, col_mult, col_share = st.columns([0.5, 2.5, 1, 1])
+                    
+                    with col_p_select:
+                        default_idx = None
+                        if sp.get("product_id"):
+                            for idx, p in enumerate(products):
+                                if p["id"] == sp["product_id"]:
+                                    default_idx = idx
+                                    break
+                        
+                        selected_p = st.selectbox(
+                            f"Producto Odoo:",
+                            options=products,
+                            format_func=get_prod_label,
+                            index=default_idx,
+                            placeholder="Escribe para buscar...",
+                            key=f"split_p_{i}_{j}"
+                        )
+                        if selected_p:
+                            sp["product_id"] = selected_p["id"]
+                            sp["odoo_name"] = selected_p["name"]
+                            sp["default_code"] = selected_p.get("default_code") or ""
+                    
+                    with col_mult:
+                        sp["quantity_multiplier"] = st.number_input(
+                            "Mult. Cant:",
+                            min_value=0.01,
+                            value=float(sp.get("quantity_multiplier", 1.0)),
+                            step=1.0,
+                            key=f"split_mult_{i}_{j}"
+                        )
+                    
+                    with col_share:
+                        percentage = st.number_input(
+                            "% Costo:",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=float(sp.get("cost_share", 0.5) * 100.0),
+                            step=5.0,
+                            key=f"split_share_{i}_{j}"
+                        )
+                        sp["cost_share"] = percentage / 100.0
+                        total_percentage += percentage
+
+                col_empty_err, col_status_msg = st.columns([0.5, 4.5])
+                with col_status_msg:
+                    if abs(total_percentage - 100.0) > 0.01:
+                        st.error(f"⚠️ La suma de porcentajes de costo debe ser 100% (Suma actual: {total_percentage:.1f}%)")
+                    else:
+                        st.success("✅ Distribución del costo válida (100%).")
 
             # Gestionar precios de venta (PVP)
             if selected_action in ["use_existing", "map_existing"] and match.get("product_id"):
@@ -805,6 +917,36 @@ def render_step_4(client: OdooRPC):
             line = st.session_state.inv_edited_lines[i]
             
             if match.get("action") == "ignore":
+                continue
+                
+            if match.get("action") == "split_item":
+                # Guardar regla de split
+                rules_to_save.append({
+                    "rule_type": "split",
+                    "vendor_id": st.session_state.inv_vendor_id,
+                    "vendor_name": st.session_state.inv_vendor_name,
+                    "original_description": line["original_description"],
+                    "split_products": match["split_products"]
+                })
+                
+                # Agregar sub-líneas a la PO
+                for sp in match["split_products"]:
+                    qty_factura = line["quantity"]
+                    price_factura = line["price_unit"]
+                    mult = sp["quantity_multiplier"]
+                    share = sp["cost_share"]
+                    
+                    sub_qty = qty_factura * mult
+                    sub_price = (price_factura * share) / mult if mult != 0 else 0.0
+                    
+                    po_lines.append({
+                        'product_id': sp["product_id"],
+                        'name': sp["odoo_name"],
+                        'product_qty': float(sub_qty),
+                        'price_unit': float(sub_price),
+                        'product_uom': 1, # Unidad por defecto
+                        'taxes_id': default_tax_ids
+                    })
                 continue
                 
             product_id = match["product_id"]
@@ -919,15 +1061,24 @@ def render_step_4(client: OdooRPC):
             
             # Guardar reglas locales
             for r in rules_to_save:
-                create_or_update_rule(
-                    vendor_id=r["vendor_id"],
-                    vendor_name=r["vendor_name"],
-                    original_description=r["original_description"],
-                    converted_description=r["converted_description"],
-                    quantity_multiplier=r["quantity_multiplier"],
-                    odoo_product_id=r["odoo_product_id"],
-                    odoo_default_code=r["odoo_default_code"]
-                )
+                if r.get("rule_type") == "split":
+                    from modules.rules_matrix import create_or_update_split_rule
+                    create_or_update_split_rule(
+                        vendor_id=r["vendor_id"],
+                        vendor_name=r["vendor_name"],
+                        original_description=r["original_description"],
+                        split_products=r["split_products"]
+                    )
+                else:
+                    create_or_update_rule(
+                        vendor_id=r["vendor_id"],
+                        vendor_name=r["vendor_name"],
+                        original_description=r["original_description"],
+                        converted_description=r["converted_description"],
+                        quantity_multiplier=r["quantity_multiplier"],
+                        odoo_product_id=r["odoo_product_id"],
+                        odoo_default_code=r["odoo_default_code"]
+                    )
 
         st.session_state.inv_step = 5
         st.session_state.inv_creating_po = False

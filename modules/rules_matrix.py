@@ -104,6 +104,70 @@ def create_or_update_rule(vendor_id: int, vendor_name: str, original_description
     save_rules(rules)
     return rule_to_return
 
+def create_or_update_split_rule(vendor_id: int, vendor_name: str, original_description: str,
+                                 split_products: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Crea o actualiza una regla de división (split) de productos.
+    Cada elemento en split_products debe ser un diccionario con:
+      - odoo_product_id: int
+      - odoo_name: str
+      - odoo_default_code: str
+      - quantity_multiplier: float
+      - cost_share: float (proporción del costo original, ej. 0.7 para 70%)
+    """
+    rules = load_rules()
+    orig_clean = original_description.strip()
+    
+    existing_rule = None
+    for r in rules:
+        if r.get("vendor_id") == vendor_id and r.get("original_description", "").strip().lower() == orig_clean.lower():
+            existing_rule = r
+            break
+
+    import uuid
+    import datetime
+    now_str = datetime.datetime.now().isoformat()
+
+    # Formatear y asegurar tipos en split_products
+    formatted_splits = []
+    for p in split_products:
+        formatted_splits.append({
+            "odoo_product_id": int(p["odoo_product_id"]),
+            "odoo_name": str(p["odoo_name"]),
+            "odoo_default_code": str(p.get("odoo_default_code") or ""),
+            "quantity_multiplier": float(p.get("quantity_multiplier", 1.0)),
+            "cost_share": float(p.get("cost_share", 0.5))
+        })
+
+    if existing_rule:
+        existing_rule["rule_type"] = "split"
+        existing_rule["split_products"] = formatted_splits
+        existing_rule["last_used"] = now_str
+        existing_rule["use_count"] = existing_rule.get("use_count", 0) + 1
+        # Limpiar campos de regla simple antigua para evitar confusión
+        existing_rule.pop("converted_description", None)
+        existing_rule.pop("quantity_multiplier", None)
+        existing_rule.pop("odoo_product_id", None)
+        existing_rule.pop("odoo_default_code", None)
+        rule_to_return = existing_rule
+    else:
+        new_rule = {
+            "id": str(uuid.uuid4()),
+            "vendor_id": vendor_id,
+            "vendor_name": vendor_name,
+            "original_description": orig_clean,
+            "rule_type": "split",
+            "split_products": formatted_splits,
+            "created_at": now_str,
+            "last_used": now_str,
+            "use_count": 1
+        }
+        rules.append(new_rule)
+        rule_to_return = new_rule
+
+    save_rules(rules)
+    return rule_to_return
+
 PROCESSED_INVOICES_PATH = os.path.join("data", "processed_invoices.json")
 
 def load_processed_bill_ids() -> List[int]:
