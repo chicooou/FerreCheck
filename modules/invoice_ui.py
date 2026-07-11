@@ -55,6 +55,8 @@ def initialize_state():
         st.session_state.inv_invoice_number = ""
     if "inv_invoice_date" not in st.session_state:
         st.session_state.inv_invoice_date = ""
+    if "inv_invoice_total" not in st.session_state:
+        st.session_state.inv_invoice_total = 0.0
     if "inv_po_result" not in st.session_state:
         st.session_state.inv_po_result = None
     if "inv_odoo_vendors" not in st.session_state:
@@ -390,6 +392,7 @@ def render_step_1(client: OdooRPC):
                     st.session_state.inv_extracted_data = extracted
                     st.session_state.inv_invoice_number = extracted.get("invoice_number") or ""
                     st.session_state.inv_invoice_date = extracted.get("invoice_date") or ""
+                    st.session_state.inv_invoice_total = float(extracted.get("total") or 0.0)
                     
                     # Procesar líneas agregando reglas
                     raw_lines = extracted.get("line_items", [])
@@ -439,7 +442,7 @@ def render_step_2():
     st.markdown("### Paso 2: Validación e ingreso de datos")
     st.write(f"**Proveedor seleccionado**: {st.session_state.inv_vendor_name}")
     
-    col_num, col_date = st.columns([1, 1])
+    col_num, col_date, col_total = st.columns([1.5, 1.5, 1])
     with col_num:
         st.session_state.inv_invoice_number = st.text_input(
             "Número de Factura / Referencia:", 
@@ -458,6 +461,14 @@ def render_step_2():
             value=default_date
         )
         st.session_state.inv_invoice_date = selected_date.strftime("%Y-%m-%d")
+    with col_total:
+        st.session_state.inv_invoice_total = st.number_input(
+            "Total Factura Física (Q):",
+            min_value=0.0,
+            value=float(st.session_state.inv_invoice_total),
+            step=1.0,
+            format="%.2f"
+        )
 
     st.markdown("#### 🎯 Margen y Redondeo Sugerido")
     col_margin, col_rounding = st.columns(2)
@@ -1046,6 +1057,61 @@ def render_step_3(client: OdooRPC):
         line = st.session_state.inv_edited_lines[i]
         render_match_item(i, match, line, client)
 
+    # 📊 Validador de Montos
+    st.write("---")
+    st.markdown("### 📊 Validador de Montos")
+    
+    calculated_total = sum(
+        float(l["quantity"]) * float(l["price_unit"])
+        for idx, l in enumerate(st.session_state.inv_edited_lines)
+        if st.session_state.inv_product_matches[idx].get("action") != "ignore"
+    )
+    
+    physical_total = st.session_state.get("inv_invoice_total", 0.0)
+    difference = physical_total - calculated_total
+    
+    col_v1, col_v2, col_v3 = st.columns(3)
+    col_v1.metric("Total Factura Física", f"Q {physical_total:.2f}")
+    col_v2.metric("Suma de Líneas a Procesar", f"Q {calculated_total:.2f}")
+    
+    if abs(difference) <= 0.01:
+        col_v3.metric("Diferencia (Cuadrado)", "Q 0.00")
+        st.success("✅ Los montos cuadran perfectamente.")
+    else:
+        delta_label = f"Falta: Q {difference:.2f}" if difference > 0 else f"Sobra: Q {abs(difference):.2f}"
+        col_v3.metric("Diferencia por Cuadrar", f"Q {difference:.2f}", delta=delta_label, delta_color="inverse")
+        st.warning(f"⚠️ Hay una diferencia de **Q {difference:.2f}** entre la factura física y las líneas a comprar.")
+        
+        col_chk, col_p_sel = st.columns([1, 2])
+        with col_chk:
+            st.session_state.inv_add_adjustment_line = st.checkbox(
+                "Agregar línea de ajuste automática",
+                value=st.session_state.get("inv_add_adjustment_line", False),
+                help="Agregará una línea extra al final de la PO con la diferencia exacta para cuadrar los totales."
+            )
+        with col_p_sel:
+            if st.session_state.get("inv_add_adjustment_line", False):
+                products = st.session_state.inv_odoo_products
+                default_idx = None
+                for idx, p in enumerate(products):
+                    name_l = p["name"].lower()
+                    if "ajuste" in name_l or "flete" in name_l or "redondeo" in name_l:
+                        default_idx = idx
+                        break
+                
+                selected_adj_p = st.selectbox(
+                    "Producto para Ajuste/Redondeo:",
+                    options=products,
+                    format_func=lambda x: f"{x['name']} [{x.get('default_code') or 'N/A'}]",
+                    index=default_idx or 0,
+                    key="inv_adj_product"
+                )
+                if selected_adj_p:
+                    st.session_state.inv_adj_product_id = selected_adj_p["id"]
+                    st.session_state.inv_adj_product_name = selected_adj_p["name"]
+    
+    st.write("---")
+
     # Botones
     col_prev, col_next = st.columns([1, 1])
     with col_prev:
@@ -1247,6 +1313,21 @@ def render_step_4(client: OdooRPC):
                 'product_uom': uom_id,
                 'taxes_id': default_tax_ids
             })
+
+        # 1.5. Agregar línea de ajuste automática si se requiere
+        if st.session_state.get("inv_add_adjustment_line", False) and st.session_state.get("inv_adj_product_id"):
+            physical_total = st.session_state.get("inv_invoice_total", 0.0)
+            current_total = sum(l['product_qty'] * l['price_unit'] for l in po_lines)
+            diff = physical_total - current_total
+            if abs(diff) > 0.01:
+                po_lines.append({
+                    'product_id': st.session_state.inv_adj_product_id,
+                    'name': st.session_state.get("inv_adj_product_name", "Ajuste de Factura / Redondeo"),
+                    'product_qty': 1.0,
+                    'price_unit': float(diff),
+                    'product_uom': 1,
+                    'taxes_id': default_tax_ids
+                })
 
         # 2. Crear Orden de Compra
         if not po_lines:
