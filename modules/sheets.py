@@ -339,9 +339,9 @@ def load_all_data_from_sheets() -> tuple:
         # BUG-02 / DEEP-01 FIX: Guardia de longitud para evitar IndexError con caches viejos
         ws_ventas = res[2] if len(res) > 2 else None
         
-        periodos_rows = ws_periodos.get_all_records()
-        compras_rows = ws_compras.get_all_records()
-        ventas_rows = ws_ventas.get_all_records() if ws_ventas is not None else []
+        periodos_rows = ws_periodos.get_all_records(numericise_ignore=['all'])
+        compras_rows = ws_compras.get_all_records(numericise_ignore=['all'])
+        ventas_rows = ws_ventas.get_all_records(numericise_ignore=['all']) if ws_ventas is not None else []
         
         # PERF-04 FIX: Agrupar compras y ventas por (ano, mes) para optimizar complejidad de O(n^2) a O(n)
         from collections import defaultdict
