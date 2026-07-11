@@ -727,8 +727,8 @@ def render_step_3(client: OdooRPC):
             elif selected_action == "split_item":
                 if "split_products" not in match or not match["split_products"]:
                     match["split_products"] = [
-                        {"product_id": None, "odoo_name": "", "default_code": "", "quantity_multiplier": 1.0, "cost_share": 0.5},
-                        {"product_id": None, "odoo_name": "", "default_code": "", "quantity_multiplier": 1.0, "cost_share": 0.5}
+                        {"product_id": None, "odoo_name": "", "default_code": "", "quantity_multiplier": 1.0, "cost_share": 0.5, "action": "map_existing"},
+                        {"product_id": None, "odoo_name": "", "default_code": "", "quantity_multiplier": 1.0, "cost_share": 0.5, "action": "map_existing"}
                     ]
                 
                 products = st.session_state.inv_odoo_products
@@ -752,56 +752,163 @@ def render_step_3(client: OdooRPC):
                 if num_splits != len(match["split_products"]):
                     if num_splits > len(match["split_products"]):
                         for _ in range(num_splits - len(match["split_products"])):
-                            match["split_products"].append({"product_id": None, "odoo_name": "", "default_code": "", "quantity_multiplier": 1.0, "cost_share": 1.0 / num_splits})
+                            match["split_products"].append({"product_id": None, "odoo_name": "", "default_code": "", "quantity_multiplier": 1.0, "cost_share": 1.0 / num_splits, "action": "map_existing"})
                     else:
                         match["split_products"] = match["split_products"][:num_splits]
                 
                 total_percentage = 0.0
                 for j, sp in enumerate(match["split_products"]):
                     st.markdown(f"   ↳ **Sub-producto #{j+1}**")
-                    col_empty, col_p_select, col_mult, col_share = st.columns([0.5, 2.5, 1, 1])
                     
-                    with col_p_select:
-                        default_idx = None
-                        if sp.get("product_id"):
-                            for idx, p in enumerate(products):
-                                if p["id"] == sp["product_id"]:
-                                    default_idx = idx
-                                    break
+                    # 1. Selector de Acción para este sub-producto
+                    col_empty_act, col_action_sub = st.columns([0.5, 4.5])
+                    with col_action_sub:
+                        sub_action_options = ["map_existing", "create_new"]
+                        sub_action_labels = {
+                            "map_existing": "Vincular a producto existente de Odoo",
+                            "create_new": "Crear nuevo producto en Odoo"
+                        }
+                        sp_action = sp.get("action", "map_existing")
+                        if sp_action not in sub_action_options:
+                            sp_action = "map_existing"
+                            
+                        selected_sp_action = st.selectbox(
+                            f"Acción para Sub-producto #{j+1}:",
+                            options=sub_action_options,
+                            format_func=lambda x: sub_action_labels[x],
+                            index=sub_action_options.index(sp_action),
+                            key=f"split_act_{i}_{j}"
+                        )
+                        sp["action"] = selected_sp_action
+                    
+                    # 2. Renderizar campos según la acción seleccionada
+                    col_empty, col_col1, col_col2, col_col3 = st.columns([0.5, 2.5, 1, 1])
+                    
+                    if selected_sp_action == "create_new":
+                        with col_col1:
+                            sp["new_name"] = st.text_input(
+                                "Nombre en Odoo:",
+                                value=sp.get("new_name") or sp.get("odoo_name") or f"{line['description']} - Parte {j+1}",
+                                key=f"split_new_name_{i}_{j}"
+                            )
+                        with col_col2:
+                            sp["new_code"] = st.text_input(
+                                "Ref Interna:",
+                                value=sp.get("new_code") or sp.get("default_code") or "",
+                                key=f"split_new_code_{i}_{j}"
+                            )
+                        with col_col3:
+                            qty_factura = line["quantity"]
+                            price_factura = line["price_unit"]
+                            mult = sp.get("quantity_multiplier", 1.0)
+                            share = sp.get("cost_share", 0.5)
+                            sub_cost = (price_factura * share) / mult if mult != 0 else 0.0
+                            
+                            suggested_sale = sp.get("new_sale_price") if sp.get("new_sale_price") is not None else sub_cost * 1.30
+                            sp["new_sale_price"] = st.number_input(
+                                "PVP sugerido (Q):",
+                                min_value=0.0,
+                                value=float(suggested_sale),
+                                step=0.5,
+                                key=f"split_new_sale_{i}_{j}"
+                            )
+                            
+                        col_empty2, col_mult_c, col_share_c = st.columns([0.5, 2.25, 2.25])
+                        with col_mult_c:
+                            sp["quantity_multiplier"] = st.number_input(
+                                "Mult. Cantidad:",
+                                min_value=0.01,
+                                value=float(sp.get("quantity_multiplier", 1.0)),
+                                step=1.0,
+                                key=f"split_mult_{i}_{j}"
+                            )
+                        with col_share_c:
+                            percentage = st.number_input(
+                                "% Costo:",
+                                min_value=0.0,
+                                max_value=100.0,
+                                value=float(sp.get("cost_share", 0.5) * 100.0),
+                                step=5.0,
+                                key=f"split_share_{i}_{j}"
+                            )
+                            sp["cost_share"] = percentage / 100.0
+                            total_percentage += percentage
+                    else: # map_existing
+                        with col_col1:
+                            default_idx = None
+                            if sp.get("product_id"):
+                                for idx, p in enumerate(products):
+                                    if p["id"] == sp["product_id"]:
+                                        default_idx = idx
+                                        break
+                            
+                            selected_p = st.selectbox(
+                                f"Producto Odoo:",
+                                options=products,
+                                format_func=get_prod_label,
+                                index=default_idx,
+                                placeholder="Escribe para buscar...",
+                                key=f"split_p_{i}_{j}"
+                            )
+                            if selected_p:
+                                sp["product_id"] = selected_p["id"]
+                                sp["odoo_name"] = selected_p["name"]
+                                sp["default_code"] = selected_p.get("default_code") or ""
+                                if "list_price" not in sp or sp.get("product_id") != selected_p["id"]:
+                                    sp["list_price"] = selected_p.get("list_price", 0.0)
                         
-                        selected_p = st.selectbox(
-                            f"Producto Odoo:",
-                            options=products,
-                            format_func=get_prod_label,
-                            index=default_idx,
-                            placeholder="Escribe para buscar...",
-                            key=f"split_p_{i}_{j}"
-                        )
-                        if selected_p:
-                            sp["product_id"] = selected_p["id"]
-                            sp["odoo_name"] = selected_p["name"]
-                            sp["default_code"] = selected_p.get("default_code") or ""
-                    
-                    with col_mult:
-                        sp["quantity_multiplier"] = st.number_input(
-                            "Mult. Cant:",
-                            min_value=0.01,
-                            value=float(sp.get("quantity_multiplier", 1.0)),
-                            step=1.0,
-                            key=f"split_mult_{i}_{j}"
-                        )
-                    
-                    with col_share:
-                        percentage = st.number_input(
-                            "% Costo:",
-                            min_value=0.0,
-                            max_value=100.0,
-                            value=float(sp.get("cost_share", 0.5) * 100.0),
-                            step=5.0,
-                            key=f"split_share_{i}_{j}"
-                        )
-                        sp["cost_share"] = percentage / 100.0
-                        total_percentage += percentage
+                        with col_col2:
+                            sp["quantity_multiplier"] = st.number_input(
+                                "Mult. Cantidad:",
+                                min_value=0.01,
+                                value=float(sp.get("quantity_multiplier", 1.0)),
+                                step=1.0,
+                                key=f"split_mult_{i}_{j}"
+                            )
+                        
+                        with col_col3:
+                            percentage = st.number_input(
+                                "% Costo:",
+                                min_value=0.0,
+                                max_value=100.0,
+                                value=float(sp.get("cost_share", 0.5) * 100.0),
+                                step=5.0,
+                                key=f"split_share_{i}_{j}"
+                            )
+                            sp["cost_share"] = percentage / 100.0
+                            total_percentage += percentage
+
+                        if sp.get("product_id"):
+                            if "list_price" not in sp:
+                                sp["list_price"] = 0.0
+                            qty_factura = line["quantity"]
+                            price_factura = line["price_unit"]
+                            mult = sp.get("quantity_multiplier", 1.0)
+                            share = sp.get("cost_share", 0.5)
+                            sub_cost = (price_factura * share) / mult if mult != 0 else 0.0
+                            
+                            col_empty2, col_prices_info, col_checkbox_upd = st.columns([0.5, 2.5, 2])
+                            with col_prices_info:
+                                st.markdown(f"💵 Venta actual: **Q {sp['list_price']:.2f}** | Compra: **Q {sub_cost:.2f}**")
+                            with col_checkbox_upd:
+                                update_price = st.checkbox(
+                                    "Actualizar PVP",
+                                    key=f"split_upd_pr_{i}_{j}",
+                                    value=sp.get("update_sale_price", False)
+                                )
+                                sp["update_sale_price"] = update_price
+                            
+                            if update_price:
+                                col_empty3, col_price_input = st.columns([0.5, 4.5])
+                                with col_price_input:
+                                    suggested_price = sp.get("new_sale_price") if sp.get("new_sale_price") is not None else sp["list_price"]
+                                    sp["new_sale_price"] = st.number_input(
+                                        "Nuevo PVP (Q):",
+                                        min_value=0.0,
+                                        value=float(suggested_price),
+                                        step=0.5,
+                                        key=f"split_new_val_{i}_{j}"
+                                    )
 
                 col_empty_err, col_status_msg = st.columns([0.5, 4.5])
                 with col_status_msg:
@@ -920,15 +1027,6 @@ def render_step_4(client: OdooRPC):
                 continue
                 
             if match.get("action") == "split_item":
-                # Guardar regla de split
-                rules_to_save.append({
-                    "rule_type": "split",
-                    "vendor_id": st.session_state.inv_vendor_id,
-                    "vendor_name": st.session_state.inv_vendor_name,
-                    "original_description": line["original_description"],
-                    "split_products": match["split_products"]
-                })
-                
                 # Agregar sub-líneas a la PO
                 for sp in match["split_products"]:
                     qty_factura = line["quantity"]
@@ -939,14 +1037,57 @@ def render_step_4(client: OdooRPC):
                     sub_qty = qty_factura * mult
                     sub_price = (price_factura * share) / mult if mult != 0 else 0.0
                     
+                    product_id = sp.get("product_id")
+                    
+                    # A. Si se seleccionó crear nuevo subproducto
+                    if sp.get("action") == "create_new":
+                        with st.spinner(f"Creando sub-producto '{sp['new_name']}' en Odoo..."):
+                            product_id = client.create_product(
+                                name=sp["new_name"],
+                                default_code=sp["new_code"],
+                                type='consu',
+                                purchase_tax_ids=default_tax_ids,
+                                vendor_id=st.session_state.inv_vendor_id,
+                                vendor_price=sub_price,
+                                vendor_code=sp["new_code"],
+                                sale_price=sp.get("new_sale_price")
+                            )
+                            # Actualizar datos en sp para que se guarden en la regla
+                            sp["product_id"] = product_id
+                            sp["odoo_name"] = sp["new_name"]
+                            sp["default_code"] = sp["new_code"]
+                            
+                            # Crear regla de reabastecimiento min/max
+                            try:
+                                client.create_reordering_rule(product_id, 1.0 if sub_qty > 1.0 else 0.0, float(sub_qty) if sub_qty > 1.0 else 1.0)
+                            except Exception as re_err:
+                                st.warning(f"⚠️ No se pudo crear la regla de reabastecimiento para '{sp['new_name']}': {str(re_err)}")
+                                
+                    # B. Si es existente y requiere actualizar PVP
+                    elif sp.get("action") == "map_existing" and sp.get("update_sale_price") and sp.get("new_sale_price") is not None:
+                        with st.spinner(f"Actualizando PVP del sub-producto '{sp['odoo_name']}'..."):
+                            try:
+                                client.update_product_sale_price(product_id, sp["new_sale_price"])
+                            except Exception as e:
+                                st.warning(f"⚠️ No se pudo actualizar el PVP para '{sp['odoo_name']}': {str(e)}")
+
                     po_lines.append({
-                        'product_id': sp["product_id"],
+                        'product_id': product_id,
                         'name': sp["odoo_name"],
                         'product_qty': float(sub_qty),
                         'price_unit': float(sub_price),
                         'product_uom': 1, # Unidad por defecto
                         'taxes_id': default_tax_ids
                     })
+                
+                # Guardar regla de split
+                rules_to_save.append({
+                    "rule_type": "split",
+                    "vendor_id": st.session_state.inv_vendor_id,
+                    "vendor_name": st.session_state.inv_vendor_name,
+                    "original_description": line["original_description"],
+                    "split_products": match["split_products"]
+                })
                 continue
                 
             product_id = match["product_id"]
