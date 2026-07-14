@@ -1899,60 +1899,69 @@ def render_auditoria_productos(client: OdooRPC):
 
         st.warning(f"⚠️ Se encontraron **{len(products)}** productos con problemas de configuración.")
 
-        # Mostrar tabla de diagnóstico
+        # Configurar DataFrame con valores editables individuales
         df_audit = pd.DataFrame(products)
-        df_visual = df_audit.rename(columns={
-            "name": "Producto",
-            "default_code": "Código Interno / Ref",
-            "is_storable": "Almacenable",
-            "available_in_pos": "Disponible en POS",
-            "has_reordering_rule": "Regla Reordenamiento"
-        })
-        
-        df_visual["Almacenable"] = df_visual["Almacenable"].map({True: "🟢 Sí", False: "🔴 Consumible"})
-        df_visual["Disponible en POS"] = df_visual["Disponible en POS"].map({True: "🟢 Sí", False: "🔴 No"})
-        df_visual["Regla Reordenamiento"] = df_visual["Regla Reordenamiento"].map({True: "🟢 Sí", False: "🔴 Falta regla"})
+        if "Habilitar POS" not in df_audit:
+            df_audit["Habilitar POS"] = ~df_audit["available_in_pos"]
+        if "Hacer Almacenable" not in df_audit:
+            df_audit["Hacer Almacenable"] = ~df_audit["is_storable"]
+        if "Crear Regla Reabastecimiento" not in df_audit:
+            df_audit["Crear Regla Reabastecimiento"] = ~df_audit["has_reordering_rule"]
+        if "Stock Mínimo" not in df_audit:
+            df_audit["Stock Mínimo"] = 1.0
+        if "Stock Máximo" not in df_audit:
+            df_audit["Stock Máximo"] = 5.0
 
-        st.dataframe(df_visual[["Producto", "Código Interno / Ref", "Almacenable", "Disponible en POS", "Regla Reordenamiento"]], use_container_width=True)
+        df_edit = df_audit[[
+            "name", "default_code", 
+            "Habilitar POS", "Hacer Almacenable", 
+            "Crear Regla Reabastecimiento", "Stock Mínimo", "Stock Máximo"
+        ]].rename(columns={
+            "name": "Producto",
+            "default_code": "Código Interno / Ref"
+        })
+
+        st.write("Edita directamente las columnas de la tabla para personalizar los valores de stock mínimo y máximo, o desmarca las casillas si no deseas aplicar algún cambio a un producto en particular:")
+
+        # Renderizar editor de datos
+        edited_df = st.data_editor(
+            df_edit,
+            column_config={
+                "Producto": st.column_config.TextColumn("Producto", disabled=True),
+                "Código Interno / Ref": st.column_config.TextColumn("Referencia", disabled=True),
+                "Habilitar POS": st.column_config.CheckboxColumn("Activar POS", default=True),
+                "Hacer Almacenable": st.column_config.CheckboxColumn("Hacer Almacenable", default=True),
+                "Crear Regla Reabastecimiento": st.column_config.CheckboxColumn("Crear Regla", default=True),
+                "Stock Mínimo": st.column_config.NumberColumn("Mínimo", min_value=0.0, step=1.0, default=1.0),
+                "Stock Máximo": st.column_config.NumberColumn("Máximo", min_value=0.0, step=1.0, default=5.0)
+            },
+            hide_index=True,
+            use_container_width=True,
+            key="audit_data_editor"
+        )
 
         st.markdown("---")
-        st.markdown("#### Configuración de Corrección Masiva")
-        
-        col_chk1, col_chk2, col_chk3 = st.columns(3)
-        with col_chk1:
-            apply_pos = st.checkbox("Habilitar en Punto de Venta (POS)", value=True, key="audit_apply_pos", help="Habilita la casilla 'Disponible en POS' en Odoo.")
-        with col_chk2:
-            apply_storable = st.checkbox("Convertir a Almacenable (Inventario)", value=True, key="audit_apply_storable", help="Cambia el tipo de producto a Almacenable para rastrear existencias.")
-        with col_chk3:
-            apply_reordering = st.checkbox("Crear Regla de Reabastecimiento", value=True, key="audit_apply_reordering", help="Genera reglas automáticas de stock mínimo y máximo.")
 
-        min_val = 1.0
-        max_val = 5.0
-        if apply_reordering:
-            col_min, col_max = st.columns(2)
-            with col_min:
-                min_val = st.number_input("Mínimo de Reabastecimiento por defecto:", min_value=0.0, value=1.0, step=1.0, key="audit_def_min")
-            with col_max:
-                max_val = st.number_input("Máximo de Reabastecimiento por defecto:", min_value=0.0, value=5.0, step=1.0, key="audit_def_max")
-
-        if st.button("⚙️ Corregir todos los productos listados", type="primary", use_container_width=True):
+        if st.button("⚙️ Aplicar Cambios Seleccionados", type="primary", use_container_width=True):
             progress_bar = st.progress(0.0)
             status_text = st.empty()
             
             success_count = 0
             total_prods = len(products)
             
-            for idx, p in enumerate(products):
-                status_text.write(f"Corrigiendo {idx+1}/{total_prods}: **{p['name']}**...")
+            edited_records = edited_df.to_dict('records')
+            
+            for idx, (p, record) in enumerate(zip(products, edited_records)):
+                status_text.write(f"Actualizando {idx+1}/{total_prods}: **{p['name']}**...")
                 try:
                     client.fix_product_pos_and_reordering(
                         product_id=p['id'],
                         product_tmpl_id=p['product_tmpl_id'],
-                        fix_pos=apply_pos and not p['available_in_pos'],
-                        fix_storable=apply_storable and not p['is_storable'],
-                        fix_reordering=apply_reordering and not p['has_reordering_rule'],
-                        min_qty=min_val,
-                        max_qty=max_val
+                        fix_pos=bool(record["Habilitar POS"]),
+                        fix_storable=bool(record["Hacer Almacenable"]),
+                        fix_reordering=bool(record["Crear Regla Reabastecimiento"]),
+                        min_qty=float(record["Stock Mínimo"]),
+                        max_qty=float(record["Stock Máximo"])
                     )
                     success_count += 1
                 except Exception as e:
@@ -1961,7 +1970,7 @@ def render_auditoria_productos(client: OdooRPC):
                 
             status_text.empty()
             progress_bar.empty()
-            st.success(f"✅ ¡Proceso completado! Se corrigieron **{success_count}** productos exitosamente en Odoo.")
+            st.success(f"✅ ¡Proceso completado! Se actualizaron **{success_count}** productos en Odoo con tus configuraciones personalizadas.")
             
             # Volver a auditar para refrescar la lista
             st.session_state.inv_products_audit = client.audit_products()
