@@ -1918,11 +1918,22 @@ def render_auditoria_productos(client: OdooRPC):
         st.markdown("---")
         st.markdown("#### Configuración de Corrección Masiva")
         
-        col_min, col_max = st.columns(2)
-        with col_min:
-            min_val = st.number_input("Mínimo de Reabastecimiento por defecto:", min_value=0.0, value=1.0, step=1.0, key="audit_def_min")
-        with col_max:
-            max_val = st.number_input("Máximo de Reabastecimiento por defecto:", min_value=0.0, value=5.0, step=1.0, key="audit_def_max")
+        col_chk1, col_chk2, col_chk3 = st.columns(3)
+        with col_chk1:
+            apply_pos = st.checkbox("Habilitar en Punto de Venta (POS)", value=True, key="audit_apply_pos", help="Habilita la casilla 'Disponible en POS' en Odoo.")
+        with col_chk2:
+            apply_storable = st.checkbox("Convertir a Almacenable (Inventario)", value=True, key="audit_apply_storable", help="Cambia el tipo de producto a Almacenable para rastrear existencias.")
+        with col_chk3:
+            apply_reordering = st.checkbox("Crear Regla de Reabastecimiento", value=True, key="audit_apply_reordering", help="Genera reglas automáticas de stock mínimo y máximo.")
+
+        min_val = 1.0
+        max_val = 5.0
+        if apply_reordering:
+            col_min, col_max = st.columns(2)
+            with col_min:
+                min_val = st.number_input("Mínimo de Reabastecimiento por defecto:", min_value=0.0, value=1.0, step=1.0, key="audit_def_min")
+            with col_max:
+                max_val = st.number_input("Máximo de Reabastecimiento por defecto:", min_value=0.0, value=5.0, step=1.0, key="audit_def_max")
 
         if st.button("⚙️ Corregir todos los productos listados", type="primary", use_container_width=True):
             progress_bar = st.progress(0.0)
@@ -1937,9 +1948,9 @@ def render_auditoria_productos(client: OdooRPC):
                     client.fix_product_pos_and_reordering(
                         product_id=p['id'],
                         product_tmpl_id=p['product_tmpl_id'],
-                        fix_pos=not p['available_in_pos'],
-                        fix_storable=not p['is_storable'],
-                        fix_reordering=not p['has_reordering_rule'],
+                        fix_pos=apply_pos and not p['available_in_pos'],
+                        fix_storable=apply_storable and not p['is_storable'],
+                        fix_reordering=apply_reordering and not p['has_reordering_rule'],
                         min_qty=min_val,
                         max_qty=max_val
                     )
