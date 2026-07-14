@@ -63,6 +63,8 @@ def initialize_state():
         st.session_state.inv_odoo_vendors = []
     if "inv_odoo_taxes" not in st.session_state:
         st.session_state.inv_odoo_taxes = []
+    if "inv_odoo_categories" not in st.session_state:
+        st.session_state.inv_odoo_categories = []
     if "inv_suggested_margin" not in st.session_state:
         st.session_state.inv_suggested_margin = 30.0
     if "inv_rounding_method" not in st.session_state:
@@ -284,6 +286,10 @@ def render_invoice_tab():
                 st.session_state.inv_odoo_vendors = client.fetch_vendors()
                 st.session_state.inv_odoo_taxes = client.fetch_purchase_taxes()
                 st.session_state.inv_odoo_products = client.fetch_all_products()
+                try:
+                    st.session_state.inv_odoo_categories = client.fetch_categories()
+                except Exception:
+                    st.session_state.inv_odoo_categories = []
                 st.session_state.inv_odoo_connected = True
         except Exception as e:
             st.error(f"⚠️ Error al conectar con Odoo: {str(e)}")
@@ -295,7 +301,7 @@ def render_invoice_tab():
     # Cabecera de estado
     col_status, col_refresh = st.columns([4, 1])
     with col_status:
-        st.success(f"🟢 Conectado a Odoo SaaS | {len(st.session_state.inv_odoo_vendors)} proveedores, {len(st.session_state.inv_odoo_taxes)} impuestos y {len(st.session_state.inv_odoo_products)} productos cargados.")
+        st.success(f"🟢 Conectado a Odoo SaaS | {len(st.session_state.inv_odoo_vendors)} proveedores, {len(st.session_state.inv_odoo_taxes)} impuestos, {len(st.session_state.inv_odoo_categories)} categorías y {len(st.session_state.inv_odoo_products)} productos cargados.")
     with col_refresh:
         if st.button("🔄 Sincronizar catálogo", use_container_width=True):
             st.session_state.inv_odoo_connected = False
@@ -762,6 +768,71 @@ def render_step_3(client: OdooRPC):
                         value=match.get("new_code") or match["default_code"], 
                         key=f"new_code_{i}"
                     )
+
+                # Campos adicionales para creación de producto
+                col_empty_2, col_new_cat, col_new_pos = st.columns([0.5, 2.5, 2])
+                with col_new_cat:
+                    cats = st.session_state.inv_odoo_categories
+                    if cats:
+                        default_cat_idx = 0
+                        current_cat_id = match.get("categ_id")
+                        if current_cat_id:
+                            for idx, c in enumerate(cats):
+                                if c["id"] == current_cat_id:
+                                    default_cat_idx = idx
+                                    break
+                                    
+                        selected_cat = st.selectbox(
+                            "Categoría en Odoo:",
+                            options=cats,
+                            format_func=lambda x: x["name"],
+                            index=default_cat_idx,
+                            key=f"new_cat_{i}"
+                        )
+                        match["categ_id"] = selected_cat["id"]
+                    else:
+                        st.caption("⚠️ No se cargaron categorías de Odoo.")
+                        match["categ_id"] = None
+                with col_new_pos:
+                    match["available_in_pos"] = st.checkbox(
+                        "Disponible en Punto de Venta (POS)",
+                        value=match.get("available_in_pos", True),
+                        key=f"new_pos_{i}"
+                    )
+
+                # Min / Max de Reabastecimiento
+                col_empty_3, col_min_qty, col_max_qty = st.columns([0.5, 2.25, 2.25])
+                qty_bought = line.get("quantity", 1.0)
+                with col_min_qty:
+                    match["reordering_min"] = st.number_input(
+                        "Mínimo Reabastecimiento:",
+                        min_value=0.0,
+                        value=float(match.get("reordering_min", 1.0 if qty_bought > 1.0 else 0.0)),
+                        step=1.0,
+                        key=f"new_min_{i}"
+                    )
+                with col_max_qty:
+                    match["reordering_max"] = st.number_input(
+                        "Máximo Reabastecimiento:",
+                        min_value=0.0,
+                        value=float(match.get("reordering_max", float(qty_bought) if qty_bought > 1.0 else 1.0)),
+                        step=1.0,
+                        key=f"new_max_{i}"
+                    )
+
+                # Subida de imagen
+                col_empty_4, col_image = st.columns([0.5, 4.5])
+                with col_image:
+                    image_file = st.file_uploader(
+                        "Imagen del Producto (Opcional):",
+                        type=["png", "jpg", "jpeg"],
+                        key=f"new_img_{i}"
+                    )
+                    if image_file:
+                        import base64
+                        match["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+                    else:
+                        match["image_base64"] = match.get("image_base64", None)
             elif selected_action == "map_existing":
                 # Autocompletado del catálogo
                 products = st.session_state.inv_odoo_products
@@ -883,8 +954,38 @@ def render_step_3(client: OdooRPC):
                                 step=0.5,
                                 key=f"split_new_sale_{i}_{j}"
                             )
-                            
-                        col_empty2, col_mult_c, col_share_c = st.columns([0.5, 2.25, 2.25])
+
+                        # Campos adicionales para creación de subproducto
+                        col_empty2, col_sub_cat, col_sub_pos = st.columns([0.5, 2.25, 2.25])
+                        with col_sub_cat:
+                            cats = st.session_state.inv_odoo_categories
+                            if cats:
+                                default_cat_idx = 0
+                                current_cat_id = sp.get("categ_id")
+                                if current_cat_id:
+                                    for idx, c in enumerate(cats):
+                                        if c["id"] == current_cat_id:
+                                            default_cat_idx = idx
+                                            break
+                                selected_cat = st.selectbox(
+                                    "Categoría en Odoo:",
+                                    options=cats,
+                                    format_func=lambda x: x["name"],
+                                    index=default_cat_idx,
+                                    key=f"split_cat_{i}_{j}"
+                                )
+                                sp["categ_id"] = selected_cat["id"]
+                            else:
+                                st.caption("⚠️ No hay categorías.")
+                                sp["categ_id"] = None
+                        with col_sub_pos:
+                            sp["available_in_pos"] = st.checkbox(
+                                "Disponible en POS",
+                                value=sp.get("available_in_pos", True),
+                                key=f"split_pos_{i}_{j}"
+                            )
+
+                        col_empty3, col_mult_c, col_share_c = st.columns([0.5, 2.25, 2.25])
                         with col_mult_c:
                             sp["quantity_multiplier"] = st.number_input(
                                 "Mult. Cantidad:",
@@ -904,6 +1005,40 @@ def render_step_3(client: OdooRPC):
                             )
                             sp["cost_share"] = percentage / 100.0
                             total_percentage += percentage
+
+                        # Reabastecimiento min/max para subproducto
+                        col_empty4, col_sub_min, col_sub_max = st.columns([0.5, 2.25, 2.25])
+                        sub_qty_bought = line["quantity"] * sp["quantity_multiplier"]
+                        with col_sub_min:
+                            sp["reordering_min"] = st.number_input(
+                                "Mín Reabastecimiento:",
+                                min_value=0.0,
+                                value=float(sp.get("reordering_min", 1.0 if sub_qty_bought > 1.0 else 0.0)),
+                                step=1.0,
+                                key=f"split_min_qty_{i}_{j}"
+                            )
+                        with col_sub_max:
+                            sp["reordering_max"] = st.number_input(
+                                "Máx Reabastecimiento:",
+                                min_value=0.0,
+                                value=float(sp.get("reordering_max", float(sub_qty_bought) if sub_qty_bought > 1.0 else 1.0)),
+                                step=1.0,
+                                key=f"split_max_qty_{i}_{j}"
+                            )
+
+                        # Subida de imagen para subproducto
+                        col_empty5, col_sub_image = st.columns([0.5, 4.5])
+                        with col_sub_image:
+                            image_file = st.file_uploader(
+                                "Imagen del Subproducto (Opcional):",
+                                type=["png", "jpg", "jpeg"],
+                                key=f"split_img_{i}_{j}"
+                            )
+                            if image_file:
+                                import base64
+                                sp["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+                            else:
+                                sp["image_base64"] = sp.get("image_base64", None)
                     else: # map_existing
                         with col_col1:
                             default_idx = None
@@ -1171,12 +1306,15 @@ def render_step_4(client: OdooRPC):
                             product_id = client.create_product(
                                 name=sp["new_name"],
                                 default_code=sp["new_code"],
-                                type='consu',
+                                type='product',
                                 purchase_tax_ids=default_tax_ids,
                                 vendor_id=st.session_state.inv_vendor_id,
                                 vendor_price=sub_price,
                                 vendor_code=sp["new_code"],
-                                sale_price=sp.get("new_sale_price")
+                                sale_price=sp.get("new_sale_price"),
+                                categ_id=sp.get("categ_id"),
+                                available_in_pos=sp.get("available_in_pos", True),
+                                image_base64=sp.get("image_base64")
                             )
                             # Actualizar datos en sp para que se guarden en la regla
                             sp["product_id"] = product_id
@@ -1185,7 +1323,9 @@ def render_step_4(client: OdooRPC):
                             
                             # Crear regla de reabastecimiento min/max
                             try:
-                                client.create_reordering_rule(product_id, 1.0 if sub_qty > 1.0 else 0.0, float(sub_qty) if sub_qty > 1.0 else 1.0)
+                                min_qty = float(sp.get("reordering_min", 1.0 if sub_qty > 1.0 else 0.0))
+                                max_qty = float(sp.get("reordering_max", float(sub_qty) if sub_qty > 1.0 else 1.0))
+                                client.create_reordering_rule(product_id, min_qty, max_qty)
                             except Exception as re_err:
                                 st.warning(f"⚠️ No se pudo crear la regla de reabastecimiento para '{sp['new_name']}': {str(re_err)}")
                                 
@@ -1224,12 +1364,15 @@ def render_step_4(client: OdooRPC):
                     product_id = client.create_product(
                         name=match["new_name"],
                         default_code=match["new_code"],
-                        type='consu',
+                        type='product',
                         purchase_tax_ids=default_tax_ids,
                         vendor_id=st.session_state.inv_vendor_id,
                         vendor_price=line["price_unit"],
                         vendor_code=match["new_code"],
-                        sale_price=match.get("new_sale_price")
+                        sale_price=match.get("new_sale_price"),
+                        categ_id=match.get("categ_id"),
+                        available_in_pos=match.get("available_in_pos", True),
+                        image_base64=match.get("image_base64")
                     )
                     
                     # Generar regla automática para guardar al final
@@ -1244,10 +1387,10 @@ def render_step_4(client: OdooRPC):
                     })
                     
                     # Crear regla de reabastecimiento (min/max)
-                    qty_bought = line["quantity"]
-                    min_q = 1.0 if qty_bought > 1.0 else 0.0
-                    max_q = float(qty_bought) if qty_bought > 1.0 else 1.0
                     try:
+                        qty_bought = line.get("quantity", 1.0)
+                        min_q = float(match.get("reordering_min", 1.0 if qty_bought > 1.0 else 0.0))
+                        max_q = float(match.get("reordering_max", float(qty_bought) if qty_bought > 1.0 else 1.0))
                         client.create_reordering_rule(product_id, min_q, max_q)
                     except Exception as re_err:
                         st.warning(f"⚠️ No se pudo crear la regla de reabastecimiento para '{match['new_name']}': {str(re_err)}")

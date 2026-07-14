@@ -255,10 +255,11 @@ class OdooRPC:
             'default_code': raw_prod.get('default_code') or ""
         }
 
-    def create_product(self, name: str, default_code: str, type: str = 'consu', 
+    def create_product(self, name: str, default_code: str, type: str = 'product', 
                        purchase_tax_ids: Optional[List[int]] = None, vendor_id: Optional[int] = None, 
                        vendor_price: float = 0.0, vendor_code: Optional[str] = None,
-                       sale_price: Optional[float] = None) -> int:
+                       sale_price: Optional[float] = None, categ_id: Optional[int] = None,
+                       available_in_pos: bool = True, image_base64: Optional[str] = None) -> int:
         """
         Crea un nuevo producto en Odoo (vía product.template).
         Auto-asocia el proveedor y los impuestos por defecto.
@@ -267,11 +268,21 @@ class OdooRPC:
         vals: Dict[str, Any] = {
             'name': name.strip(),
             'type': type,
+            'detailed_type': type,
             'is_storable': True,  # Rastrear en inventario / Control de Stock
             'default_code': default_code.strip() if default_code else False,
             'list_price': sale_price if sale_price is not None else vendor_price,
             'standard_price': vendor_price,  # Costo
+            'sale_ok': True,
+            'purchase_ok': True,
+            'available_in_pos': available_in_pos,
         }
+
+        if categ_id:
+            vals['categ_id'] = categ_id
+
+        if image_base64:
+            vals['image_1920'] = image_base64
 
         if purchase_tax_ids:
             vals['supplier_taxes_id'] = [(6, 0, purchase_tax_ids)]
@@ -413,6 +424,14 @@ class OdooRPC:
         domain = [('type', 'in', ['bank', 'cash']), ('active', '=', True)]
         fields = ['id', 'name', 'type', 'code']
         return self._execute('account.journal', 'search_read', [domain], {'fields': fields})
+
+    def fetch_categories(self) -> List[Dict[str, Any]]:
+        """
+        Obtiene las categorías de productos disponibles en Odoo.
+        """
+        domain = []
+        fields = ['id', 'name']
+        return self._execute('product.category', 'search_read', [domain], {'fields': fields})
 
     def register_bill_payment(self, bill_id: int, journal_id: int, payment_date: str) -> bool:
         """
