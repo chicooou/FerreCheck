@@ -77,6 +77,10 @@ def initialize_state():
         st.session_state.inv_creating_po = False
     if "inv_rules_to_save" not in st.session_state:
         st.session_state.inv_rules_to_save = []
+    if "inv_products_audit" not in st.session_state:
+        st.session_state.inv_products_audit = []
+    if "inv_audit_ran" not in st.session_state:
+        st.session_state.inv_audit_ran = False
     
     # Odoo flow states
     if "inv_po_confirmed" not in st.session_state:
@@ -310,7 +314,8 @@ def render_invoice_tab():
     st.markdown("---")
 
     # Separar en dos sub-pestañas:
-    subtab_ocr, subtab_payable = st.tabs(["📸 Procesar Factura (OCR)", "📊 Cuentas por Pagar (Odoo)"])
+    # Separar en tres sub-pestañas:
+    subtab_ocr, subtab_payable, subtab_audit = st.tabs(["📸 Procesar Factura (OCR)", "📊 Cuentas por Pagar (Odoo)", "🔍 Auditoría de Productos"])
 
     with subtab_ocr:
         # Render de pasos
@@ -327,6 +332,9 @@ def render_invoice_tab():
 
     with subtab_payable:
         render_cuentas_por_pagar(client)
+
+    with subtab_audit:
+        render_auditoria_productos(client)
 
 def render_step_1(client: OdooRPC):
     st.markdown("### Paso 1: Extracción de Datos")
@@ -1866,3 +1874,84 @@ def render_cuentas_por_pagar(client: OdooRPC):
 
     except Exception as e:
         st.error(f"⚠️ Error al obtener cuentas por pagar de Odoo: {str(e)}")
+
+def render_auditoria_productos(client: OdooRPC):
+    st.markdown("### 🔍 Auditoría y Corrección de Productos en Odoo")
+    st.write("Analiza y corrige de forma masiva los productos en Odoo que no tengan habilitado el Punto de Venta (POS), no estén configurados como Almacenables (Storable) o no tengan regla de reabastecimiento mínimo/máximo.")
+
+    col_btn, col_info = st.columns([1, 2])
+    with col_btn:
+        if st.button("🔎 Ejecutar Diagnóstico de Productos", type="primary", use_container_width=True):
+            with st.spinner("Analizando catálogo de productos en Odoo..."):
+                try:
+                    products_needing_fix = client.audit_products()
+                    st.session_state.inv_products_audit = products_needing_fix
+                    st.session_state.inv_audit_ran = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al auditar productos: {str(e)}")
+
+    if st.session_state.get("inv_audit_ran", False):
+        products = st.session_state.get("inv_products_audit", [])
+        if not products:
+            st.success("🎉 ¡Felicidades! Todos tus productos activos en Odoo ya están correctamente configurados para POS, son almacenables y cuentan con reglas de reabastecimiento.")
+            return
+
+        st.warning(f"⚠️ Se encontraron **{len(products)}** productos con problemas de configuración.")
+
+        # Mostrar tabla de diagnóstico
+        df_audit = pd.DataFrame(products)
+        df_visual = df_audit.rename(columns={
+            "name": "Producto",
+            "default_code": "Código Interno / Ref",
+            "is_storable": "Almacenable",
+            "available_in_pos": "Disponible en POS",
+            "has_reordering_rule": "Regla Reordenamiento"
+        })
+        
+        df_visual["Almacenable"] = df_visual["Almacenable"].map({True: "🟢 Sí", False: "🔴 Consumible"})
+        df_visual["Disponible en POS"] = df_visual["Disponible en POS"].map({True: "🟢 Sí", False: "🔴 No"})
+        df_visual["Regla Reordenamiento"] = df_visual["Regla Reordenamiento"].map({True: "🟢 Sí", False: "🔴 Falta regla"})
+
+        st.dataframe(df_visual[["Producto", "Código Interno / Ref", "Almacenable", "Disponible en POS", "Regla Reordenamiento"]], use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("#### Configuración de Corrección Masiva")
+        
+        col_min, col_max = st.columns(2)
+        with col_min:
+            min_val = st.number_input("Mínimo de Reabastecimiento por defecto:", min_value=0.0, value=1.0, step=1.0, key="audit_def_min")
+        with col_max:
+            max_val = st.number_input("Máximo de Reabastecimiento por defecto:", min_value=0.0, value=5.0, step=1.0, key="audit_def_max")
+
+        if st.button("⚙️ Corregir todos los productos listados", type="primary", use_container_width=True):
+            progress_bar = st.progress(0.0)
+            status_text = st.empty()
+            
+            success_count = 0
+            total_prods = len(products)
+            
+            for idx, p in enumerate(products):
+                status_text.write(f"Corrigiendo {idx+1}/{total_prods}: **{p['name']}**...")
+                try:
+                    client.fix_product_pos_and_reordering(
+                        product_id=p['id'],
+                        product_tmpl_id=p['product_tmpl_id'],
+                        fix_pos=not p['available_in_pos'],
+                        fix_storable=not p['is_storable'],
+                        fix_reordering=not p['has_reordering_rule'],
+                        min_qty=min_val,
+                        max_qty=max_val
+                    )
+                    success_count += 1
+                except Exception as e:
+                    st.error(f"Error al corregir '{p['name']}': {str(e)}")
+                progress_bar.progress((idx + 1) / total_prods)
+                
+            status_text.empty()
+            progress_bar.empty()
+            st.success(f"✅ ¡Proceso completado! Se corrigieron **{success_count}** productos exitosamente en Odoo.")
+            
+            # Volver a auditar para refrescar la lista
+            st.session_state.inv_products_audit = client.audit_products()
+            st.rerun()

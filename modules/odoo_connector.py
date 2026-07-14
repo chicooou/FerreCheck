@@ -599,3 +599,69 @@ class OdooRPC:
                 "uom": uom[1] if isinstance(uom, list) else str(uom)
             }
         return result
+
+    def audit_products(self) -> List[Dict[str, Any]]:
+        """
+        Analiza todos los productos de Odoo y detecta si les falta:
+        1. Estar habilitados para POS (available_in_pos)
+        2. Ser almacenables (detailed_type == 'product')
+        3. Tener regla de reabastecimiento (stock.warehouse.orderpoint)
+        """
+        domain = [('active', '=', True)]
+        fields = ['id', 'name', 'default_code', 'type', 'detailed_type', 'available_in_pos', 'product_tmpl_id']
+        products = self._execute('product.product', 'search_read', [domain], {'fields': fields})
+        
+        if not products:
+            return []
+            
+        product_ids = [p['id'] for p in products]
+        
+        # Buscar cuáles tienen regla de reabastecimiento
+        orderpoint_domain = [('product_id', 'in', product_ids)]
+        orderpoints = self._execute('stock.warehouse.orderpoint', 'search_read', [orderpoint_domain], {'fields': ['product_id']})
+        products_with_rules = {op['product_id'][0] for op in orderpoints if op.get('product_id')}
+        
+        audited_products = []
+        for p in products:
+            is_storable = p.get('detailed_type') == 'product' or p.get('type') == 'product'
+            available_pos = p.get('available_in_pos', False)
+            has_rule = p['id'] in products_with_rules
+            
+            if not is_storable or not available_pos or not has_rule:
+                audited_products.append({
+                    'id': p['id'],
+                    'product_tmpl_id': p['product_tmpl_id'][0] if isinstance(p.get('product_tmpl_id'), (list, tuple)) else p.get('product_tmpl_id'),
+                    'name': p['name'],
+                    'default_code': p.get('default_code') or '',
+                    'is_storable': is_storable,
+                    'available_in_pos': available_pos,
+                    'has_reordering_rule': has_rule
+                })
+        return audited_products
+
+    def fix_product_pos_and_reordering(self, product_id: int, product_tmpl_id: int, 
+                                       fix_pos: bool = True, fix_storable: bool = True, 
+                                       fix_reordering: bool = True, min_qty: float = 1.0, 
+                                       max_qty: float = 5.0) -> bool:
+        """
+        Corrige la configuración de un producto en Odoo (POS, Almacenable, Reordenamiento).
+        """
+        tmpl_vals = {}
+        if fix_pos:
+            tmpl_vals['available_in_pos'] = True
+        if fix_storable:
+            tmpl_vals['type'] = 'product'
+            tmpl_vals['detailed_type'] = 'product'
+            tmpl_vals['is_storable'] = True
+            
+        if tmpl_vals and product_tmpl_id:
+            self._execute('product.template', 'write', [[product_tmpl_id], tmpl_vals])
+            
+        if fix_reordering:
+            op_exists = self._execute('stock.warehouse.orderpoint', 'search', [[('product_id', '=', product_id)]])
+            if not op_exists:
+                try:
+                    self.create_reordering_rule(product_id, min_qty, max_qty)
+                except Exception:
+                    pass
+        return True
