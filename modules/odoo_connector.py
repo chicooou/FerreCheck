@@ -268,7 +268,6 @@ class OdooRPC:
         vals: Dict[str, Any] = {
             'name': name.strip(),
             'type': type,
-            'detailed_type': type,
             'is_storable': True,  # Rastrear en inventario / Control de Stock
             'default_code': default_code.strip() if default_code else False,
             'list_price': sale_price if sale_price is not None else vendor_price,
@@ -604,11 +603,11 @@ class OdooRPC:
         """
         Analiza todos los productos de Odoo y detecta si les falta:
         1. Estar habilitados para POS (available_in_pos)
-        2. Ser almacenables (detailed_type == 'product')
+        2. Ser almacenables (type == 'product')
         3. Tener regla de reabastecimiento (stock.warehouse.orderpoint)
         """
         domain = [('active', '=', True)]
-        fields = ['id', 'name', 'default_code', 'type', 'detailed_type', 'available_in_pos', 'product_tmpl_id']
+        fields = ['id', 'name', 'default_code', 'type', 'available_in_pos', 'product_tmpl_id']
         products = self._execute('product.product', 'search_read', [domain], {'fields': fields})
         
         if not products:
@@ -623,7 +622,7 @@ class OdooRPC:
         
         audited_products = []
         for p in products:
-            is_storable = p.get('detailed_type') == 'product' or p.get('type') == 'product'
+            is_storable = p.get('type') == 'product'
             available_pos = p.get('available_in_pos', False)
             has_rule = p['id'] in products_with_rules
             
@@ -651,7 +650,6 @@ class OdooRPC:
             tmpl_vals['available_in_pos'] = True
         if fix_storable:
             tmpl_vals['type'] = 'product'
-            tmpl_vals['detailed_type'] = 'product'
             tmpl_vals['is_storable'] = True
             
         if tmpl_vals and product_tmpl_id:
