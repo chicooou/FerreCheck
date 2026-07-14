@@ -139,7 +139,8 @@ def save_draft():
             "inv_edited_lines": st.session_state.inv_edited_lines,
             "inv_product_matches": st.session_state.inv_product_matches,
             "inv_invoice_number": st.session_state.inv_invoice_number,
-            "inv_invoice_date": st.session_state.inv_invoice_date
+            "inv_invoice_date": st.session_state.inv_invoice_date,
+            "inv_invoice_total": st.session_state.get("inv_invoice_total", 0.0)
         }
         with open(DRAFT_FILE, "w", encoding="utf-8") as f:
             json.dump(draft_data, f, ensure_ascii=False, indent=2)
@@ -167,6 +168,7 @@ def load_draft():
             st.session_state.inv_product_matches = draft_data.get("inv_product_matches", [])
             st.session_state.inv_invoice_number = draft_data.get("inv_invoice_number", "")
             st.session_state.inv_invoice_date = draft_data.get("inv_invoice_date", "")
+            st.session_state.inv_invoice_total = draft_data.get("inv_invoice_total", 0.0)
             return True
     except Exception as e:
         print(f"Error loading draft: {e}")
@@ -1314,7 +1316,7 @@ def render_step_4(client: OdooRPC):
                             product_id = client.create_product(
                                 name=sp["new_name"],
                                 default_code=sp["new_code"],
-                                type='product',
+                                type='consu',
                                 purchase_tax_ids=default_tax_ids,
                                 vendor_id=st.session_state.inv_vendor_id,
                                 vendor_price=sub_price,
@@ -1372,7 +1374,7 @@ def render_step_4(client: OdooRPC):
                     product_id = client.create_product(
                         name=match["new_name"],
                         default_code=match["new_code"],
-                        type='product',
+                        type='consu',
                         purchase_tax_ids=default_tax_ids,
                         vendor_id=st.session_state.inv_vendor_id,
                         vendor_price=line["price_unit"],

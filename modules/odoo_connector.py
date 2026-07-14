@@ -255,7 +255,7 @@ class OdooRPC:
             'default_code': raw_prod.get('default_code') or ""
         }
 
-    def create_product(self, name: str, default_code: str, type: str = 'product', 
+    def create_product(self, name: str, default_code: str, type: str = 'consu', 
                        purchase_tax_ids: Optional[List[int]] = None, vendor_id: Optional[int] = None, 
                        vendor_price: float = 0.0, vendor_code: Optional[str] = None,
                        sale_price: Optional[float] = None, categ_id: Optional[int] = None,
@@ -622,7 +622,7 @@ class OdooRPC:
         
         audited_products = []
         for p in products:
-            is_storable = p.get('type') == 'product'
+            is_storable = p.get('type') == 'consu'
             available_pos = p.get('available_in_pos', False)
             has_rule = p['id'] in products_with_rules
             
@@ -649,7 +649,7 @@ class OdooRPC:
         if fix_pos:
             tmpl_vals['available_in_pos'] = True
         if fix_storable:
-            tmpl_vals['type'] = 'product'
+            tmpl_vals['type'] = 'consu'
             tmpl_vals['is_storable'] = True
             
         if tmpl_vals and product_tmpl_id:
