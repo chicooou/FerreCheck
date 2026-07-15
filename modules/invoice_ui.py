@@ -522,24 +522,27 @@ def render_step_2():
             row["unidades_paquete"] = 100.0
         if "aplicar_conversion" not in row:
             row["aplicar_conversion"] = False
+        if "discount" not in row or pd.isna(row.get("discount")):
+            row["discount"] = 0.0
 
     df_lines = pd.DataFrame(st.session_state.inv_edited_lines)
     if df_lines.empty:
         st.warning("No se extrajeron líneas. Agrega una nueva línea.")
-        df_lines = pd.DataFrame(columns=["description", "quantity", "price_unit", "supplier_code", "unidades_paquete", "aplicar_conversion"])
+        df_lines = pd.DataFrame(columns=["description", "quantity", "price_unit", "discount", "supplier_code", "unidades_paquete", "aplicar_conversion"])
 
     st.markdown("#### 🛠️ Edición y Conversión (Cientos, Libras)")
     st.info("💡 Edita las celdas directamente. Si compraste un paquete (ej. 1 ciento), escribe las unidades reales en 'Unds x Paquete' y marca '✅ Convertir'.")
 
     # Selector y editor de tabla
     edited_df = st.data_editor(
-        df_lines[["description", "quantity", "price_unit", "supplier_code", "unidades_paquete", "aplicar_conversion"]],
+        df_lines[["description", "quantity", "price_unit", "discount", "supplier_code", "unidades_paquete", "aplicar_conversion"]],
         num_rows="dynamic",
         use_container_width=True,
         column_config={
             "description": st.column_config.TextColumn("Descripción (Odoo / Factura)", required=True),
             "quantity": st.column_config.NumberColumn("Cantidad", min_value=0.01, required=True, format="%.2f"),
             "price_unit": st.column_config.NumberColumn("Precio Unitario (Q)", min_value=0.0, required=True, format="Q %.4f"),
+            "discount": st.column_config.NumberColumn("Descuento (Q)", min_value=0.0, format="Q %.4f"),
             "supplier_code": st.column_config.TextColumn("Cód. Prov."),
             "unidades_paquete": st.column_config.NumberColumn("Unds x Paquete", min_value=0.01, format="%.2f", help="Unidades reales del empaque/libra."),
             "aplicar_conversion": st.column_config.CheckboxColumn("✅ Convertir", default=False),
@@ -556,6 +559,7 @@ def render_step_2():
             "description": row["description"],
             "quantity": float(row["quantity"]),
             "price_unit": float(row["price_unit"]),
+            "discount": float(row.get("discount", 0.0)) if pd.notna(row.get("discount", 0.0)) else 0.0,
             "supplier_code": row["supplier_code"] if pd.notna(row["supplier_code"]) else "",
             "unidades_paquete": float(row.get("unidades_paquete", 100.0)),
             "aplicar_conversion": False, # Reset after applying
@@ -595,6 +599,7 @@ def render_step_2():
                     "description": row["description"],
                     "quantity": float(row["quantity"]),
                     "price_unit": float(row["price_unit"]),
+                    "discount": float(row.get("discount", 0.0)) if pd.notna(row.get("discount", 0.0)) else 0.0,
                     "supplier_code": row["supplier_code"] if pd.notna(row["supplier_code"]) else "",
                     "applied_rule": orig_meta.get("applied_rule", False),
                     "multiplier": orig_meta.get("multiplier", 1.0),
@@ -1207,7 +1212,7 @@ def render_step_3(client: OdooRPC):
     st.markdown("### 📊 Validador de Montos")
     
     calculated_total = sum(
-        float(l["quantity"]) * float(l["price_unit"])
+        (float(l["quantity"]) * float(l["price_unit"])) - float(l.get("discount", 0.0))
         for idx, l in enumerate(st.session_state.inv_edited_lines)
         if st.session_state.inv_product_matches[idx].get("action") != "ignore"
     )
@@ -1458,11 +1463,13 @@ def render_step_4(client: OdooRPC):
                 # Default a UoM unidad (id 1)
                 uom_id = 1
 
+            net_price = ( (float(line["quantity"]) * float(line["price_unit"])) - float(line.get("discount", 0.0)) ) / float(line["quantity"]) if float(line["quantity"]) > 0 else float(line["price_unit"])
+
             po_lines.append({
                 'product_id': product_id,
                 'name': match["new_name"] if match["action"] == "create_new" else match["odoo_name"],
                 'product_qty': line["quantity"],
-                'price_unit': line["price_unit"],
+                'price_unit': net_price,
                 'product_uom': uom_id,
                 'taxes_id': default_tax_ids
             })

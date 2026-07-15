@@ -79,6 +79,7 @@ def extract_invoice_data(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
         "      \"description\": \"Nombre o descripción detallada del artículo\",\n"
         "      \"quantity\": float,\n"
         "      \"price_unit\": float,\n"
+        "      \"discount\": float o null,\n"
         "      \"supplier_code\": \"código del proveedor/fabricante o null\"\n"
         "    }\n"
         "  ]\n"
