@@ -121,34 +121,47 @@ def extract_invoice_data(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
         }
     }
 
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        
-        response_json = response.json()
-        
-        candidates = response_json.get("candidates", [])
-        if not candidates:
-            raise ValueError(f"No se encontraron candidatos en la respuesta de Gemini: {response_json}")
-            
-        content = candidates[0].get("content", {})
-        parts = content.get("parts", [])
-        if not parts:
-            raise ValueError(f"No se encontraron partes de contenido en la respuesta de Gemini: {response_json}")
-            
-        raw_text = parts[0].get("text", "").strip()
-        
-        # Limpiar posibles bloques markdown sobrantes
-        if raw_text.startswith("```"):
-            raw_text = re.sub(r'^```(?:json)?\n', '', raw_text)
-            raw_text = re.sub(r'\n```$', '', raw_text)
-            raw_text = raw_text.strip()
+    import time
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
+            response.raise_for_status()
 
-        # Parsear JSON
-        data = json.loads(raw_text)
-        return data
+            response_json = response.json()
+            
+            candidates = response_json.get("candidates", [])
+            if not candidates:
+                raise ValueError(f"No se encontraron candidatos en la respuesta de Gemini: {response_json}")
+                
+            content = candidates[0].get("content", {})
+            parts = content.get("parts", [])
+            if not parts:
+                raise ValueError(f"No se encontraron partes de contenido en la respuesta de Gemini: {response_json}")
+                
+            raw_text = parts[0].get("text", "").strip()
+            
+            # Limpiar posibles bloques markdown sobrantes
+            if raw_text.startswith("```"):
+                raw_text = re.sub(r'^```(?:json)?\n', '', raw_text)
+                raw_text = re.sub(r'\n```$', '', raw_text)
+                raw_text = raw_text.strip()
+    
+            # Parsear JSON
+            data = json.loads(raw_text)
+            return data
 
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Error al llamar a la API de Gemini mediante HTTP: {str(e)}")
-    except (json.JSONDecodeError, KeyError, IndexError) as e:
-        raise ValueError(f"Error al procesar la respuesta de Gemini: {str(e)}")
+        except requests.exceptions.HTTPError as e:
+            # Si el error es 503 (Service Unavailable) o 429 (Too Many Requests) y no es el último intento
+            if response.status_code in [503, 429] and attempt < max_retries - 1:
+                time.sleep(2)  # Esperar 2 segundos antes de reintentar
+                continue
+            # Si es otro error o es el último intento, levantar la excepción
+            raise RuntimeError(f"Error al llamar a la API de Gemini mediante HTTP: {str(e)}")
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            raise RuntimeError(f"Error de conexión con la API de Gemini: {str(e)}")
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
+            raise ValueError(f"Error al procesar la respuesta de Gemini: {str(e)}")
