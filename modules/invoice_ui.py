@@ -417,6 +417,9 @@ def render_step_1(client: OdooRPC):
                         orig_desc = line.get("description", "")
                         qty = line.get("quantity", 1.0)
                         price = line.get("price_unit", 0.0)
+                        discount = line.get("discount")
+                        if discount is None:
+                            discount = 0.0
                         sup_code = line.get("supplier_code") or ""
                         
                         # Buscar si hay regla previa
@@ -440,6 +443,7 @@ def render_step_1(client: OdooRPC):
                             "description": (rule["converted_description"] if rule and rule.get("rule_type") != "split" else orig_desc),
                             "quantity": float(qty),
                             "price_unit": float(price),
+                            "discount": float(discount),
                             "supplier_code": sup_code,
                             "applied_rule": applied_rule,
                             "applied_split_rule": applied_split_rule,
